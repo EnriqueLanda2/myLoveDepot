@@ -1,0 +1,24 @@
+name: my_love_depot
+description: Inventario local instalable como PWA para tablet.
+publish_to: none
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  image_picker: ^1.2.3
+  http: ^1.5.0
+  mobile_scanner: ^7.4.0
+  model_viewer_plus: ^1.10.0
+  shared_preferences: ^2.5.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

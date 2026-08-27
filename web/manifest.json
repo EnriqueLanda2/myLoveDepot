@@ -1,0 +1,19 @@
+{
+  "name": "My Love Depot",
+  "short_name": "Depot",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#fff8f0",
+  "theme_color": "#6f4e37",
+  "description": "Inventario sencillo para tu almacén",
+  "orientation": "any",
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "icons/depot.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
