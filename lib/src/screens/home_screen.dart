@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:model_viewer_plus/model_viewer_plus.dart';
 
 import '../inventory_store.dart';
 import '../models.dart';
@@ -48,6 +47,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
                 actions: [
+                  Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: Chip(
+                        avatar:
+                            const Icon(Icons.verified_user_outlined, size: 18),
+                        label: Text(widget.store.role),
+                      ),
+                    ),
+                  ),
                   Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: FilledButton.tonalIcon(
@@ -55,6 +64,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       icon: const Icon(Icons.qr_code_scanner_rounded),
                       label: const Text('Escanear'),
                     ),
+                  ),
+                  IconButton(
+                    tooltip: 'Cerrar sesión',
+                    onPressed: widget.store.logout,
+                    icon: const Icon(Icons.logout),
                   ),
                   Padding(
                     padding: const EdgeInsets.only(right: 16),
@@ -210,12 +224,11 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ),
                                 icon: const Icon(Icons.swap_horiz),
                               ),
-                              if (product.modelUrl.isNotEmpty)
-                                IconButton.filledTonal(
-                                  tooltip: 'Ver modelo 3D',
-                                  onPressed: () => _showModel(context, product),
-                                  icon: const Icon(Icons.view_in_ar_rounded),
-                                ),
+                              IconButton.filledTonal(
+                                tooltip: 'Ver detalle',
+                                onPressed: () => _showDetails(context, product),
+                                icon: const Icon(Icons.visibility_outlined),
+                              ),
                               PopupMenuButton<String>(
                                 onSelected: (value) {
                                   if (value == 'edit') {
@@ -237,6 +250,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ],
                           ),
+                          onTap: () => _showDetails(context, product),
                         ),
                       );
                     },
@@ -266,15 +280,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final existing = widget.store.findByBarcode(code);
     if (existing != null) {
-      await widget.store.addOne(existing);
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            '${existing.name}: stock actualizado a ${existing.stock}',
-          ),
-        ),
-      );
+      await showStockDialog(context, widget.store, existing,
+          incomingOnly: true, initialQuantity: 1);
     } else {
       await showDialog<void>(
         context: context,
@@ -283,25 +290,25 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _showModel(BuildContext context, Product product) async {
+  Future<void> _showDetails(BuildContext context, Product product) async {
     await showDialog<void>(
       context: context,
       builder: (context) => Dialog.fullscreen(
         child: Scaffold(
           appBar: AppBar(
-            title: Text('${product.name} · Modelo 3D'),
+            title: Text(product.name),
             leading: IconButton(
               onPressed: () => Navigator.pop(context),
               icon: const Icon(Icons.close),
             ),
           ),
-          body: ModelViewer(
-            src: product.modelUrl,
-            alt: 'Modelo 3D de ${product.name}',
-            ar: true,
-            autoRotate: true,
-            cameraControls: true,
-            backgroundColor: const Color(0xfffff8f0),
+          body: _ProductDetails(
+            product: product,
+            onStock: () => showStockDialog(context, widget.store, product),
+            onEdit: () {
+              Navigator.pop(context);
+              _openProductForm(context, product);
+            },
           ),
         ),
       ),
@@ -328,6 +335,133 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     if (confirmed == true) await widget.store.deleteProduct(product.id);
   }
+}
+
+class _ProductDetails extends StatefulWidget {
+  const _ProductDetails(
+      {required this.product, required this.onStock, required this.onEdit});
+  final Product product;
+  final VoidCallback onStock;
+  final VoidCallback onEdit;
+
+  @override
+  State<_ProductDetails> createState() => _ProductDetailsState();
+}
+
+class _ProductDetailsState extends State<_ProductDetails> {
+  int imageIndex = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final product = widget.product;
+    final images = product.imageUrls.isNotEmpty
+        ? product.imageUrls
+        : product.imageUrl.isNotEmpty
+            ? [product.imageUrl]
+            : <String>[];
+    return LayoutBuilder(builder: (context, constraints) {
+      final wide = constraints.maxWidth > 760;
+      final gallery = Container(
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        child: images.isEmpty
+            ? const Center(child: Icon(Icons.inventory_2_outlined, size: 110))
+            : Column(children: [
+                Expanded(
+                  child: PageView.builder(
+                    itemCount: images.length,
+                    onPageChanged: (value) =>
+                        setState(() => imageIndex = value),
+                    itemBuilder: (_, index) => AnimatedScale(
+                      scale: imageIndex == index ? 1 : .92,
+                      duration: const Duration(milliseconds: 250),
+                      child: InteractiveViewer(
+                        minScale: .8,
+                        maxScale: 4,
+                        child: Image.network(
+                          images[index],
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) => const Center(
+                              child:
+                                  Icon(Icons.broken_image_outlined, size: 70)),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(images.length > 1
+                      ? 'Desliza para girar · Vista ${imageIndex + 1} de ${images.length}'
+                      : 'Pellizca para ampliar la imagen'),
+                ),
+              ]),
+      );
+      final info = SingleChildScrollView(
+        padding: const EdgeInsets.all(28),
+        child:
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text(product.name, style: Theme.of(context).textTheme.headlineMedium),
+          const SizedBox(height: 8),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            Chip(label: Text(product.category)),
+            Chip(
+                label: Text(product.hasLowStock ? 'Stock bajo' : 'Disponible'),
+                avatar: Icon(product.hasLowStock
+                    ? Icons.warning_amber
+                    : Icons.check_circle_outline)),
+          ]),
+          const SizedBox(height: 24),
+          _detailRow(Icons.qr_code, 'Código',
+              product.barcode.isEmpty ? 'Sin código' : product.barcode),
+          _detailRow(Icons.sell_outlined, 'SKU', product.sku),
+          _detailRow(Icons.inventory_2_outlined, 'Existencias',
+              '${product.stock} unidades'),
+          _detailRow(Icons.low_priority, 'Stock mínimo',
+              '${product.minimumStock} unidades'),
+          _detailRow(Icons.payments_outlined, 'Precio',
+              '\$${product.price.toStringAsFixed(2)}'),
+          _detailRow(
+              Icons.account_balance_wallet_outlined,
+              'Valor en inventario',
+              '\$${product.inventoryValue.toStringAsFixed(2)}'),
+          const SizedBox(height: 24),
+          FilledButton.icon(
+              onPressed: widget.onStock,
+              icon: const Icon(Icons.swap_horiz),
+              label: const Text('Registrar movimiento')),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+              onPressed: widget.onEdit,
+              icon: const Icon(Icons.edit_outlined),
+              label: const Text('Editar producto')),
+        ]),
+      );
+      return wide
+          ? Row(children: [
+              Expanded(flex: 3, child: gallery),
+              Expanded(flex: 2, child: info)
+            ])
+          : Column(children: [
+              Expanded(flex: 3, child: gallery),
+              Expanded(flex: 4, child: info)
+            ]);
+    });
+  }
+
+  Widget _detailRow(IconData icon, String label, String value) => Padding(
+        padding: const EdgeInsets.only(bottom: 16),
+        child: Row(children: [
+          Icon(icon),
+          const SizedBox(width: 14),
+          Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                Text(label, style: Theme.of(context).textTheme.labelMedium),
+                Text(value, style: Theme.of(context).textTheme.titleMedium)
+              ])),
+        ]),
+      );
 }
 
 class _ProductThumb extends StatelessWidget {

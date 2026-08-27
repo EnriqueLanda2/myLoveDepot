@@ -13,7 +13,10 @@ class Product {
     this.photoBase64 = '',
     this.imageUrl = '',
     this.modelUrl = '',
-  });
+    List<String>? imageUrls,
+    List<String>? pendingImagesBase64,
+  })  : imageUrls = imageUrls ?? [],
+        pendingImagesBase64 = pendingImagesBase64 ?? [];
 
   final String id;
   String name;
@@ -26,6 +29,8 @@ class Product {
   String photoBase64;
   String imageUrl;
   String modelUrl;
+  List<String> imageUrls;
+  List<String> pendingImagesBase64;
 
   bool get hasLowStock => stock <= minimumStock;
   double get inventoryValue => stock * price;
@@ -42,6 +47,8 @@ class Product {
         'photoBase64': photoBase64,
         'imageUrl': imageUrl,
         'modelUrl': modelUrl,
+        'imageUrls': imageUrls,
+        'pendingImagesBase64': pendingImagesBase64,
       };
 
   factory Product.fromJson(Map<String, dynamic> json) => Product(
@@ -56,6 +63,9 @@ class Product {
         photoBase64: json['photoBase64'] as String? ?? '',
         imageUrl: json['imageUrl'] as String? ?? '',
         modelUrl: json['modelUrl'] as String? ?? '',
+        imageUrls: (json['imageUrls'] as List? ?? []).cast<String>(),
+        pendingImagesBase64:
+            (json['pendingImagesBase64'] as List? ?? []).cast<String>(),
       );
 }
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'inventory_store.dart';
 import 'screens/home_screen.dart';
+import 'screens/login_screen.dart';
 
 class DepotApp extends StatefulWidget {
   const DepotApp({super.key});
@@ -52,7 +53,12 @@ class _DepotAppState extends State<DepotApp> {
           ),
         ),
       ),
-      home: HomeScreen(store: store),
+      home: ListenableBuilder(
+        listenable: store,
+        builder: (_, __) => store.isAuthenticated
+            ? HomeScreen(store: store)
+            : LoginScreen(store: store),
+      ),
     );
   }
 }

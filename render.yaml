@@ -22,7 +22,15 @@ services:
         sync: false
       - key: CLOUDINARY_API_SECRET
         sync: false
-      - key: INVENTORY_API_KEY
+      - key: JWT_SECRET
+        generateValue: true
+      - key: WIFEY_USERNAME
+        value: wifey
+      - key: WIFEY_PASSWORD
+        sync: false
+      - key: HUSBAND_USERNAME
+        value: husband
+      - key: HUSBAND_PASSWORD
         sync: false
       - key: ALLOWED_ORIGINS
         sync: false

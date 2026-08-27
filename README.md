@@ -11,9 +11,10 @@ para compilarse como PWA o APK Android.
 - Buscador y filtros por estado.
 - Historial de movimientos.
 - Persistencia local en el dispositivo y datos de demostración iniciales.
-- Escaneo de códigos de barras y QR con incremento automático de stock.
-- Captura de fotografía desde la cámara o selección desde la galería.
-- Visualizador interactivo para modelos 3D en formato GLB o glTF.
+- Escaneo de códigos de barras y QR con acceso directo a registrar stock.
+- Captura de hasta cinco vistas verificadas del producto.
+- Galería interactiva tipo giro, sin solicitar archivos GLB o glTF.
+- Inicio de sesión JWT para los roles `wifey` y `husband`.
 
 ## Ejecutar
 
@@ -49,20 +50,20 @@ Abre la URL publicada con Chrome, toca el menú de tres puntos y elige
 **Instalar aplicación** o **Agregar a pantalla principal**. La PWA se abrirá en
 modo independiente, como una app.
 
-> Este MVP guarda la información en un solo dispositivo. Para sincronizar varias
-> tablets, compartir usuarios o respaldar datos en la nube hará falta agregar un
-> backend.
+Los datos se conservan localmente para una carga rápida y se sincronizan con la
+API cuando existe una sesión válida y conexión disponible.
 
-## Cámara, códigos y modelos 3D
+## Cámara, códigos y vistas del producto
 
-Al escanear un código existente se registra una entrada de una unidad. Si el
-código es nuevo, se abre el formulario con el código precargado. Chrome debe
+Al escanear un código existente se abre el formulario de entrada de stock con
+una unidad sugerida; el usuario confirma la cantidad. Si el código es nuevo, se
+abre el formulario con el código precargado. Chrome debe
 tener permiso para usar la cámara y la PWA debe servirse mediante HTTPS.
 
-La fotografía y el modelo 3D son recursos distintos. Una fotografía se guarda
-directamente con el producto; para la vista 3D se proporciona una URL pública a
-un archivo `.glb` o `.gltf` con CORS habilitado. Generar automáticamente un
-modelo 3D real requiere varias fotos y un proceso o servicio de fotogrametría.
+El formulario acepta una vista frontal y hasta cuatro vistas adicionales. El
+detalle permite desplazarse entre ellas como un giro del producto. Una sola foto
+no contiene información real de sus caras ocultas, por lo que no se inventan
+vistas inexistentes ni se presenta el resultado como fotogrametría real.
 
 ## Backend, MySQL y Cloudinary
 
@@ -80,20 +81,20 @@ npm run dev
 
 Completa primero `backend/.env` con la conexión MySQL, el certificado CA de
 Aiven codificado en Base64, las tres credenciales de Cloudinary y una clave
-propia larga para `INVENTORY_API_KEY`. El despliegue ejecuta automáticamente la
+propia larga para `JWT_SECRET`, además de las contraseñas de `wifey` y `husband`.
+El despliegue ejecuta automáticamente la
 creación de tablas antes de iniciar la API.
 
 Para conectar Flutter durante desarrollo:
 
 ```powershell
 flutter run -d chrome `
-  --dart-define=API_BASE_URL=http://localhost:3000 `
-  --dart-define=INVENTORY_API_KEY=tu-clave-de-inventario
+  --dart-define=API_BASE_URL=http://localhost:3000
 ```
 
 En producción usa la URL HTTPS de la API y configura `ALLOWED_ORIGINS` con el
-dominio exacto de la PWA. La clave compartida limita accesos casuales, pero antes
-de admitir varios usuarios debe sustituirse por autenticación individual.
+dominio exacto de la PWA. El JWT se obtiene al iniciar sesión y no se compila
+ninguna contraseña dentro del frontend.
 
 ### Desplegar la API en Render
 
@@ -106,7 +107,7 @@ directorio `backend/` y health check en `/health`.
    secretas.
 4. Usa en `DATABASE_URL` la URI MySQL entregada por Aiven.
 5. Agrega las tres credenciales de Cloudinary.
-6. Genera y guarda una clave larga como `INVENTORY_API_KEY`.
+6. Configura `JWT_SECRET`, `WIFEY_PASSWORD` y `HUSBAND_PASSWORD` como secretos.
 7. En `ALLOWED_ORIGINS` coloca la URL final de la PWA, sin `/` al final.
 
 Al iniciar, el contenedor aplica automáticamente `schema.sql`. No se guardan

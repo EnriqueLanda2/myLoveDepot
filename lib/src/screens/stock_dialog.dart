@@ -6,19 +6,32 @@ import '../models.dart';
 Future<void> showStockDialog(
   BuildContext context,
   InventoryStore store,
-  Product product,
-) async {
+  Product product, {
+  bool incomingOnly = false,
+  int? initialQuantity,
+}) async {
   await showDialog<void>(
     context: context,
-    builder: (_) => _StockDialog(store: store, product: product),
+    builder: (_) => _StockDialog(
+      store: store,
+      product: product,
+      incomingOnly: incomingOnly,
+      initialQuantity: initialQuantity,
+    ),
   );
 }
 
 class _StockDialog extends StatefulWidget {
-  const _StockDialog({required this.store, required this.product});
+  const _StockDialog(
+      {required this.store,
+      required this.product,
+      required this.incomingOnly,
+      this.initialQuantity});
 
   final InventoryStore store;
   final Product product;
+  final bool incomingOnly;
+  final int? initialQuantity;
 
   @override
   State<_StockDialog> createState() => _StockDialogState();
@@ -29,6 +42,14 @@ class _StockDialogState extends State<_StockDialog> {
   final quantity = TextEditingController();
   final note = TextEditingController();
   String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialQuantity != null) {
+      quantity.text = '${widget.initialQuantity}';
+    }
+  }
 
   @override
   void dispose() {
@@ -49,22 +70,24 @@ class _StockDialogState extends State<_StockDialog> {
           children: [
             Text('Existencia actual: ${widget.product.stock}'),
             const SizedBox(height: 16),
-            SegmentedButton<MovementType>(
-              segments: const [
-                ButtonSegment(
-                  value: MovementType.incoming,
-                  icon: Icon(Icons.add),
-                  label: Text('Entrada'),
-                ),
-                ButtonSegment(
-                  value: MovementType.outgoing,
-                  icon: Icon(Icons.remove),
-                  label: Text('Salida'),
-                ),
-              ],
-              selected: {type},
-              onSelectionChanged: (value) => setState(() => type = value.first),
-            ),
+            if (!widget.incomingOnly)
+              SegmentedButton<MovementType>(
+                segments: const [
+                  ButtonSegment(
+                    value: MovementType.incoming,
+                    icon: Icon(Icons.add),
+                    label: Text('Entrada'),
+                  ),
+                  ButtonSegment(
+                    value: MovementType.outgoing,
+                    icon: Icon(Icons.remove),
+                    label: Text('Salida'),
+                  ),
+                ],
+                selected: {type},
+                onSelectionChanged: (value) =>
+                    setState(() => type = value.first),
+              ),
             const SizedBox(height: 16),
             TextField(
               controller: quantity,

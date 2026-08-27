@@ -8,19 +8,30 @@ import 'models.dart';
 class DepotApiClient {
   DepotApiClient({
     this.baseUrl = const String.fromEnvironment('API_BASE_URL'),
-    this.apiKey = const String.fromEnvironment('INVENTORY_API_KEY'),
   });
 
   final String baseUrl;
-  final String apiKey;
+  String token = '';
 
-  bool get enabled => baseUrl.trim().isNotEmpty && apiKey.trim().isNotEmpty;
+  bool get enabled => baseUrl.trim().isNotEmpty && token.isNotEmpty;
   Uri _uri(String path) =>
       Uri.parse('${baseUrl.replaceAll(RegExp(r'/$'), '')}$path');
   Map<String, String> get _headers => {
         'content-type': 'application/json',
-        'x-api-key': apiKey,
+        if (token.isNotEmpty) 'authorization': 'Bearer $token',
       };
+
+  Future<Map<String, dynamic>> login(String username, String password) async {
+    final response = await http.post(
+      _uri('/auth/login'),
+      headers: const {'content-type': 'application/json'},
+      body: jsonEncode({'username': username, 'password': password}),
+    );
+    _ensureSuccess(response);
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    token = data['token'] as String;
+    return data;
+  }
 
   Future<List<Product>> getProducts() async {
     final response = await http.get(_uri('/api/products'), headers: _headers);
@@ -30,15 +41,17 @@ class DepotApiClient {
         .toList();
   }
 
-  Future<String> uploadProductImage(String productId, Uint8List bytes) async {
+  Future<String> uploadProductImage(
+      String productId, int viewIndex, Uint8List bytes) async {
     final request = http.MultipartRequest(
       'POST',
       _uri('/api/uploads/product-image'),
     )
-      ..headers['x-api-key'] = apiKey
+      ..headers['authorization'] = 'Bearer $token'
       ..fields['productId'] = productId
+      ..fields['viewIndex'] = '$viewIndex'
       ..files.add(http.MultipartFile.fromBytes('image', bytes,
-          filename: '$productId.jpg'));
+          filename: '$productId-$viewIndex.jpg'));
     final streamed = await request.send();
     final response = await http.Response.fromStream(streamed);
     _ensureSuccess(response);
@@ -46,7 +59,10 @@ class DepotApiClient {
   }
 
   Future<void> saveProduct(Product product) async {
-    final body = product.toJson()..remove('photoBase64');
+    final body = product.toJson()
+      ..remove('photoBase64')
+      ..remove('pendingImagesBase64')
+      ..remove('modelUrl');
     final response = await http.post(
       _uri('/api/products'),
       headers: _headers,

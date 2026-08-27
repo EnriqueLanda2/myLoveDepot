@@ -2,14 +2,20 @@ import 'dotenv/config';
 
 import { v2 as cloudinary } from 'cloudinary';
 import cors from 'cors';
+import { timingSafeEqual } from 'node:crypto';
 import express, { type NextFunction, type Request, type Response } from 'express';
+import jwt from 'jsonwebtoken';
 import multer from 'multer';
 import mysql from 'mysql2/promise';
+import sharp from 'sharp';
 import { z } from 'zod';
 
 import { databaseSsl } from './database-config.js';
 
-const required = ['DATABASE_URL', 'CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET', 'INVENTORY_API_KEY'] as const;
+const required = [
+  'DATABASE_URL', 'CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY',
+  'CLOUDINARY_API_SECRET', 'JWT_SECRET', 'WIFEY_PASSWORD', 'HUSBAND_PASSWORD',
+] as const;
 for (const key of required) {
   if (!process.env[key]) throw new Error(`Falta la variable ${key}`);
 }
@@ -29,6 +35,7 @@ cloudinary.config({
 });
 
 const app = express();
+app.set('trust proxy', 1);
 const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? '').split(',').map((item) => item.trim()).filter(Boolean);
 app.use(cors({ origin: allowedOrigins.length === 0 ? false : allowedOrigins }));
 app.use(express.json({ limit: '1mb' }));
@@ -38,9 +45,69 @@ app.get('/health', async (_request, response) => {
   response.json({ status: 'ok' });
 });
 
-app.use('/api', (request, response, next) => {
-  if (request.header('x-api-key') !== process.env.INVENTORY_API_KEY) {
-    response.status(401).json({ error: 'No autorizado' });
+type Role = 'wifey' | 'husband';
+type AuthRequest = Request & { user?: { role: Role; username: string } };
+
+const loginSchema = z.object({
+  username: z.string().trim().min(1).max(80),
+  password: z.string().min(8).max(200),
+});
+const loginAttempts = new Map<string, { count: number; resetAt: number }>();
+
+function safeEqual(left: string, right: string) {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+app.post('/auth/login', (request, response) => {
+  const client = request.ip ?? 'unknown';
+  const now = Date.now();
+  const attempt = loginAttempts.get(client);
+  if (attempt && attempt.resetAt > now && attempt.count >= 8) {
+    response.status(429).json({ error: 'Demasiados intentos. Espera 15 minutos.' });
+    return;
+  }
+  const credentials = loginSchema.parse(request.body);
+  const users = [
+    { role: 'wifey' as const, username: process.env.WIFEY_USERNAME ?? 'wifey', password: process.env.WIFEY_PASSWORD! },
+    { role: 'husband' as const, username: process.env.HUSBAND_USERNAME ?? 'husband', password: process.env.HUSBAND_PASSWORD! },
+  ];
+  const user = users.find((candidate) => candidate.username === credentials.username &&
+    safeEqual(candidate.password, credentials.password));
+  if (!user) {
+    loginAttempts.set(client, {
+      count: attempt && attempt.resetAt > now ? attempt.count + 1 : 1,
+      resetAt: attempt && attempt.resetAt > now ? attempt.resetAt : now + 15 * 60 * 1000,
+    });
+    response.status(401).json({ error: 'Usuario o contraseña incorrectos' });
+    return;
+  }
+  loginAttempts.delete(client);
+  const token = jwt.sign(
+    { role: user.role, username: user.username },
+    process.env.JWT_SECRET!,
+    { algorithm: 'HS256', expiresIn: '12h', subject: user.username },
+  );
+  response.json({ token, role: user.role, username: user.username, expiresIn: 43200 });
+});
+
+app.use('/api', (request: AuthRequest, response, next) => {
+  const authorization = request.header('authorization');
+  if (!authorization?.startsWith('Bearer ')) {
+    response.status(401).json({ error: 'Inicia sesión para continuar' });
+    return;
+  }
+  try {
+    const payload = jwt.verify(authorization.slice(7), process.env.JWT_SECRET!, {
+      algorithms: ['HS256'],
+    }) as { role?: Role; username?: string };
+    if (!payload.role || !payload.username || !['wifey', 'husband'].includes(payload.role)) {
+      throw new Error('Token sin rol válido');
+    }
+    request.user = { role: payload.role, username: payload.username };
+  } catch {
+    response.status(401).json({ error: 'La sesión venció o no es válida' });
     return;
   }
   next();
@@ -56,31 +123,39 @@ const productSchema = z.object({
   stock: z.number().int().nonnegative(),
   minimumStock: z.number().int().nonnegative(),
   imageUrl: z.string().url().or(z.literal('')).optional().default(''),
-  modelUrl: z.string().url().or(z.literal('')).optional().default(''),
+  imageUrls: z.array(z.string().url()).max(5).optional().default([]),
 });
 
 app.get('/api/products', async (_request, response) => {
-  const [rows] = await pool.query(`
+  const [rows] = await pool.query<mysql.RowDataPacket[]>(`
     SELECT id, name, sku, COALESCE(barcode, '') barcode, category,
       CAST(price AS DOUBLE) price, stock, minimum_stock minimumStock,
-      COALESCE(image_url, '') imageUrl, COALESCE(model_url, '') modelUrl
+      COALESCE(image_url, '') imageUrl
     FROM products ORDER BY name
   `);
-  response.json(rows);
+  const [images] = await pool.query<mysql.RowDataPacket[]>(
+    'SELECT product_id productId, image_url imageUrl FROM product_images ORDER BY product_id, view_index',
+  );
+  const byProduct = new Map<string, string[]>();
+  for (const image of images) {
+    const list = byProduct.get(String(image.productId)) ?? [];
+    list.push(String(image.imageUrl));
+    byProduct.set(String(image.productId), list);
+  }
+  response.json(rows.map((row) => ({ ...row, imageUrls: byProduct.get(String(row.id)) ?? [] })));
 });
 
 app.post('/api/products', async (request, response) => {
   const parsed = productSchema.parse(request.body);
   await pool.execute(
     `INSERT INTO products
-      (id, name, sku, barcode, category, price, stock, minimum_stock, image_url, model_url)
-     VALUES (?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''))
+      (id, name, sku, barcode, category, price, stock, minimum_stock, image_url)
+     VALUES (?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, NULLIF(?, ''))
      ON DUPLICATE KEY UPDATE name=VALUES(name), sku=VALUES(sku),
        barcode=VALUES(barcode), category=VALUES(category), price=VALUES(price),
-       stock=VALUES(stock), minimum_stock=VALUES(minimum_stock),
-       image_url=VALUES(image_url), model_url=VALUES(model_url)`,
+       stock=VALUES(stock), minimum_stock=VALUES(minimum_stock), image_url=VALUES(image_url)`,
     [parsed.id, parsed.name, parsed.sku, parsed.barcode, parsed.category, parsed.price,
-      parsed.stock, parsed.minimumStock, parsed.imageUrl, parsed.modelUrl],
+      parsed.stock, parsed.minimumStock, parsed.imageUrl],
   );
   response.status(200).json({ ok: true });
 });
@@ -130,10 +205,7 @@ app.post('/api/products/:id/movements', async (request, response) => {
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 8 * 1024 * 1024 },
-  fileFilter: (_request, file, callback) => {
-    callback(null, ['image/jpeg', 'image/png', 'image/webp', 'image/heic'].includes(file.mimetype));
-  },
+  limits: { fileSize: 8 * 1024 * 1024, files: 1, fields: 3 },
 });
 
 app.post('/api/uploads/product-image', upload.single('image'), async (request, response) => {
@@ -142,20 +214,41 @@ app.post('/api/uploads/product-image', upload.single('image'), async (request, r
     return;
   }
   const productId = z.string().min(1).max(64).parse(request.body.productId);
+  const viewIndex = z.coerce.number().int().min(0).max(4).parse(request.body.viewIndex ?? 0);
+  let safeImage: Buffer;
+  try {
+    const metadata = await sharp(request.file.buffer, { failOn: 'error', limitInputPixels: 25_000_000 }).metadata();
+    if (!metadata.width || !metadata.height || !['jpeg', 'png', 'webp'].includes(metadata.format ?? '')) {
+      throw new Error('Formato de imagen no permitido');
+    }
+    if (metadata.width < 200 || metadata.height < 200) {
+      response.status(400).json({ error: 'La imagen debe medir al menos 200 x 200 píxeles' });
+      return;
+    }
+    safeImage = await sharp(request.file.buffer, { failOn: 'error', limitInputPixels: 25_000_000 })
+      .rotate().resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })
+      .webp({ quality: 84 }).toBuffer();
+  } catch {
+    response.status(400).json({ error: 'El archivo no es una imagen JPEG, PNG o WebP real y válida' });
+    return;
+  }
   const result = await new Promise<{ secure_url: string; public_id: string }>((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
-      { folder: 'my-love-depot/products', public_id: productId, overwrite: true, resource_type: 'image' },
+      { folder: 'my-love-depot/products', public_id: `${productId}/view-${viewIndex}`, overwrite: true, resource_type: 'image', format: 'webp' },
       (error, uploaded) => {
         if (error || !uploaded) reject(error ?? new Error('Cloudinary no respondió'));
         else resolve(uploaded);
       },
     );
-    stream.end(request.file!.buffer);
+    stream.end(safeImage);
   });
-  await pool.execute(
-    'UPDATE products SET image_url = ?, image_public_id = ? WHERE id = ?',
-    [result.secure_url, result.public_id, productId],
-  );
+  await pool.execute(`INSERT INTO product_images (product_id, view_index, image_url, image_public_id)
+    VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE image_url=VALUES(image_url), image_public_id=VALUES(image_public_id)`,
+  [productId, viewIndex, result.secure_url, result.public_id]);
+  if (viewIndex === 0) {
+    await pool.execute('UPDATE products SET image_url = ?, image_public_id = ? WHERE id = ?',
+      [result.secure_url, result.public_id, productId]);
+  }
   response.status(201).json({ url: result.secure_url, publicId: result.public_id });
 });
 

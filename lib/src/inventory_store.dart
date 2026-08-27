@@ -9,11 +9,18 @@ import 'models.dart';
 class InventoryStore extends ChangeNotifier {
   static const _productsKey = 'depot_products_v1';
   static const _movementsKey = 'depot_movements_v1';
+  static const _tokenKey = 'depot_auth_token_v1';
+  static const _roleKey = 'depot_auth_role_v1';
 
   final List<Product> _products = [];
   final List<StockMovement> _movements = [];
   final DepotApiClient api = DepotApiClient();
   bool isLoading = true;
+  String role = '';
+  String username = '';
+  String? authError;
+
+  bool get isAuthenticated => api.token.isNotEmpty;
 
   List<Product> get products => List.unmodifiable(_products);
   List<StockMovement> get movements => List.unmodifiable(_movements);
@@ -62,6 +69,8 @@ class InventoryStore extends ChangeNotifier {
 
   Future<void> load() async {
     final preferences = await SharedPreferences.getInstance();
+    api.token = preferences.getString(_tokenKey) ?? '';
+    role = preferences.getString(_roleKey) ?? '';
     final savedProducts = preferences.getString(_productsKey);
     final savedMovements = preferences.getString(_movementsKey);
 
@@ -100,6 +109,51 @@ class InventoryStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<bool> login(String usernameValue, String password) async {
+    authError = null;
+    try {
+      final data = await api.login(usernameValue.trim(), password);
+      role = data['role'] as String;
+      username = data['username'] as String;
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setString(_tokenKey, api.token);
+      await preferences.setString(_roleKey, role);
+      final remoteProducts = await api.getProducts();
+      _products
+        ..clear()
+        ..addAll(remoteProducts);
+      await _save();
+      notifyListeners();
+      return true;
+    } on DepotApiException catch (error) {
+      authError = error.statusCode == 401
+          ? 'Usuario o contraseña incorrectos.'
+          : 'No fue posible iniciar sesión.';
+    } on Object {
+      authError = 'No hay conexión con el servidor.';
+    }
+    notifyListeners();
+    return false;
+  }
+
+  Future<void> logout() async {
+    api.token = '';
+    role = '';
+    username = '';
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.remove(_tokenKey);
+    await preferences.remove(_roleKey);
+    notifyListeners();
+  }
+
+  Future<void> _refreshRemote() async {
+    final remoteProducts = await api.getProducts();
+    _products
+      ..clear()
+      ..addAll(remoteProducts);
+    await _save();
+  }
+
   Future<void> saveProduct(Product product) async {
     final index = _products.indexWhere((item) => item.id == product.id);
     if (index == -1) {
@@ -112,13 +166,26 @@ class InventoryStore extends ChangeNotifier {
     if (api.enabled) {
       try {
         await api.saveProduct(product);
-        if (product.photoBase64.isNotEmpty) {
-          product.imageUrl = await api.uploadProductImage(
-            product.id,
-            base64Decode(product.photoBase64),
-          );
+        if (product.pendingImagesBase64.isNotEmpty) {
+          final uploaded = <String>[];
+          for (var index = 0;
+              index < product.pendingImagesBase64.length && index < 5;
+              index++) {
+            final encoded = product.pendingImagesBase64[index];
+            if (encoded.isEmpty) continue;
+            uploaded.add(await api.uploadProductImage(
+              product.id,
+              index,
+              base64Decode(encoded),
+            ));
+          }
+          if (uploaded.isNotEmpty) {
+            await _refreshRemote();
+          }
+          product.pendingImagesBase64 = [];
           product.photoBase64 = '';
           await _save();
+          notifyListeners();
         }
       } on Object catch (error) {
         debugPrint('El producto quedó local, pendiente de sincronizar: $error');

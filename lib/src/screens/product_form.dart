@@ -32,8 +32,14 @@ class _ProductFormState extends State<ProductForm> {
   late final TextEditingController price;
   late final TextEditingController stock;
   late final TextEditingController minimum;
-  late final TextEditingController modelUrl;
-  Uint8List? photoBytes;
+  final photos = List<Uint8List?>.filled(5, null);
+  static const viewNames = [
+    'Frente',
+    'Atrás',
+    'Izquierda',
+    'Derecha',
+    'Arriba'
+  ];
 
   @override
   void initState() {
@@ -50,12 +56,11 @@ class _ProductFormState extends State<ProductForm> {
     minimum = TextEditingController(
       text: product?.minimumStock.toString() ?? '5',
     );
-    modelUrl = TextEditingController(text: product?.modelUrl);
     if (product?.photoBase64.isNotEmpty == true) {
       try {
-        photoBytes = base64Decode(product!.photoBase64);
+        photos[0] = base64Decode(product!.photoBase64);
       } on FormatException {
-        photoBytes = null;
+        photos[0] = null;
       }
     }
   }
@@ -70,7 +75,6 @@ class _ProductFormState extends State<ProductForm> {
       price,
       stock,
       minimum,
-      modelUrl,
     ]) {
       controller.dispose();
     }
@@ -94,38 +98,19 @@ class _ProductFormState extends State<ProductForm> {
               children: [
                 SizedBox(
                   width: 548,
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      CircleAvatar(
-                        radius: 42,
-                        backgroundImage: photoBytes != null
-                            ? MemoryImage(photoBytes!)
-                            : widget.product?.imageUrl.isNotEmpty == true
-                                ? NetworkImage(widget.product!.imageUrl)
-                                : null,
-                        child: photoBytes == null &&
-                                widget.product?.imageUrl.isNotEmpty != true
-                            ? const Icon(Icons.photo_camera_outlined, size: 34)
-                            : null,
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            FilledButton.tonalIcon(
-                              onPressed: () => _pickPhoto(ImageSource.camera),
-                              icon: const Icon(Icons.camera_alt_outlined),
-                              label: const Text('Tomar foto'),
-                            ),
-                            OutlinedButton.icon(
-                              onPressed: () => _pickPhoto(ImageSource.gallery),
-                              icon: const Icon(Icons.photo_library_outlined),
-                              label: const Text('Galería'),
-                            ),
-                          ],
-                        ),
+                      Text('Vistas del producto',
+                          style: Theme.of(context).textTheme.titleMedium),
+                      const SizedBox(height: 4),
+                      const Text(
+                          'Una foto es suficiente; cinco vistas mejoran la presentación 3D.'),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: List.generate(5, _photoTile),
                       ),
                     ],
                   ),
@@ -137,12 +122,6 @@ class _ProductFormState extends State<ProductForm> {
                 _field(price, 'Precio', numeric: true),
                 _field(stock, 'Existencia inicial', integer: true),
                 _field(minimum, 'Stock mínimo', integer: true),
-                _field(
-                  modelUrl,
-                  'URL del modelo 3D (.glb/.gltf)',
-                  width: 548,
-                  required: false,
-                ),
               ],
             ),
           ),
@@ -221,15 +200,78 @@ class _ProductFormState extends State<ProductForm> {
         stock: int.parse(stock.text),
         minimumStock: int.parse(minimum.text),
         barcode: barcode.text.trim(),
-        photoBase64: photoBytes == null ? '' : base64Encode(photoBytes!),
+        photoBase64: photos[0] == null ? '' : base64Encode(photos[0]!),
         imageUrl: current?.imageUrl ?? '',
-        modelUrl: modelUrl.text.trim(),
+        imageUrls: current?.imageUrls ?? [],
+        pendingImagesBase64: photos
+            .map((item) => item == null ? '' : base64Encode(item))
+            .toList(),
       ),
     );
     if (mounted) Navigator.pop(context);
   }
 
-  Future<void> _pickPhoto(ImageSource source) async {
+  Widget _photoTile(int index) {
+    final bytes = photos[index];
+    final existing = index < (widget.product?.imageUrls.length ?? 0)
+        ? widget.product!.imageUrls[index]
+        : index == 0
+            ? widget.product?.imageUrl ?? ''
+            : '';
+    return SizedBox(
+      width: 100,
+      child: Column(
+        children: [
+          InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () => _chooseSource(index),
+            child: Ink(
+              height: 86,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(14),
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                image: bytes != null
+                    ? DecorationImage(
+                        image: MemoryImage(bytes), fit: BoxFit.cover)
+                    : existing.isNotEmpty
+                        ? DecorationImage(
+                            image: NetworkImage(existing), fit: BoxFit.cover)
+                        : null,
+              ),
+              child: bytes == null && existing.isEmpty
+                  ? const Center(child: Icon(Icons.add_a_photo_outlined))
+                  : null,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(viewNames[index], style: Theme.of(context).textTheme.labelSmall),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _chooseSource(int index) async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Wrap(children: [
+          ListTile(
+            leading: const Icon(Icons.camera_alt_outlined),
+            title: const Text('Tomar foto'),
+            onTap: () => Navigator.pop(context, ImageSource.camera),
+          ),
+          ListTile(
+            leading: const Icon(Icons.photo_library_outlined),
+            title: const Text('Elegir de galería'),
+            onTap: () => Navigator.pop(context, ImageSource.gallery),
+          ),
+        ]),
+      ),
+    );
+    if (source != null) await _pickPhoto(source, index);
+  }
+
+  Future<void> _pickPhoto(ImageSource source, int index) async {
     final image = await ImagePicker().pickImage(
       source: source,
       maxWidth: 1000,
@@ -237,6 +279,27 @@ class _ProductFormState extends State<ProductForm> {
     );
     if (image == null) return;
     final bytes = await image.readAsBytes();
-    if (mounted) setState(() => photoBytes = bytes);
+    if (bytes.length > 8 * 1024 * 1024 || !_looksLikeImage(bytes)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+              'Selecciona una imagen JPEG, PNG o WebP válida de máximo 8 MB.'),
+        ));
+      }
+      return;
+    }
+    if (mounted) setState(() => photos[index] = bytes);
+  }
+
+  bool _looksLikeImage(Uint8List bytes) {
+    if (bytes.length < 12) return false;
+    final jpeg = bytes[0] == 0xff && bytes[1] == 0xd8 && bytes[2] == 0xff;
+    final png = bytes[0] == 0x89 &&
+        bytes[1] == 0x50 &&
+        bytes[2] == 0x4e &&
+        bytes[3] == 0x47;
+    final webp = String.fromCharCodes(bytes.sublist(0, 4)) == 'RIFF' &&
+        String.fromCharCodes(bytes.sublist(8, 12)) == 'WEBP';
+    return jpeg || png || webp;
   }
 }
