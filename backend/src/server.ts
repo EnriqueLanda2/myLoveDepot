@@ -7,6 +7,8 @@ import multer from 'multer';
 import mysql from 'mysql2/promise';
 import { z } from 'zod';
 
+import { databaseSsl } from './database-config.js';
+
 const required = ['DATABASE_URL', 'CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET', 'INVENTORY_API_KEY'] as const;
 for (const key of required) {
   if (!process.env[key]) throw new Error(`Falta la variable ${key}`);
@@ -16,7 +18,7 @@ const pool = mysql.createPool({
   uri: process.env.DATABASE_URL,
   connectionLimit: 8,
   enableKeepAlive: true,
-  ssl: process.env.DATABASE_URL?.includes('localhost') ? undefined : {},
+  ssl: databaseSsl(process.env.DATABASE_URL!),
 });
 
 cloudinary.config({

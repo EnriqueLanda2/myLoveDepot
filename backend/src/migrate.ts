@@ -3,12 +3,14 @@ import 'dotenv/config';
 import { readFile } from 'node:fs/promises';
 import mysql from 'mysql2/promise';
 
+import { databaseSsl } from './database-config.js';
+
 if (!process.env.DATABASE_URL) throw new Error('Falta la variable DATABASE_URL');
 
 const connection = await mysql.createConnection({
   uri: process.env.DATABASE_URL,
   multipleStatements: true,
-  ssl: process.env.DATABASE_URL.includes('localhost') ? undefined : {},
+  ssl: databaseSsl(process.env.DATABASE_URL),
 });
 
 try {

@@ -78,9 +78,10 @@ npm run db:init
 npm run dev
 ```
 
-Completa primero `backend/.env` con la conexión MySQL, las tres credenciales de
-Cloudinary y una clave propia larga para `INVENTORY_API_KEY`. El despliegue
-ejecuta automáticamente la creación de tablas antes de iniciar la API.
+Completa primero `backend/.env` con la conexión MySQL, el certificado CA de
+Aiven codificado en Base64, las tres credenciales de Cloudinary y una clave
+propia larga para `INVENTORY_API_KEY`. El despliegue ejecuta automáticamente la
+creación de tablas antes de iniciar la API.
 
 Para conectar Flutter durante desarrollo:
 
