@@ -2,15 +2,16 @@ import 'dotenv/config';
 
 import { v2 as cloudinary } from 'cloudinary';
 import cors from 'cors';
-import { timingSafeEqual } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import jwt from 'jsonwebtoken';
 import multer from 'multer';
 import mysql from 'mysql2/promise';
-import sharp from 'sharp';
 import { z } from 'zod';
 
 import { databaseSsl } from './database-config.js';
+import { ModelBuildError, buildModel } from './model-generator.js';
+import { ScanQualityError, validateProductScan } from './scan-quality.js';
 
 const required = [
   'DATABASE_URL', 'CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY',
@@ -113,12 +114,87 @@ app.use('/api', (request: AuthRequest, response, next) => {
   next();
 });
 
+const categorySchema = z.object({
+  id: z.string().min(1).max(64).optional(),
+  name: z.string().trim().min(1).max(100),
+});
+
+app.get('/api/categories', async (_request, response) => {
+  const [rows] = await pool.query<mysql.RowDataPacket[]>(`
+    SELECT c.id, c.name, COUNT(p.id) productCount
+    FROM categories c LEFT JOIN products p ON p.category = c.name
+    GROUP BY c.id, c.name ORDER BY c.name
+  `);
+  response.json(rows.map((row) => ({ ...row, productCount: Number(row.productCount) })));
+});
+
+app.post('/api/categories', async (request, response) => {
+  const parsed = categorySchema.parse(request.body);
+  const [existing] = await pool.query<mysql.RowDataPacket[]>(
+    'SELECT id, name FROM categories WHERE name = ?',
+    [parsed.name],
+  );
+  if (existing.length > 0) {
+    response.status(200).json({ id: existing[0].id, name: existing[0].name });
+    return;
+  }
+  const id = parsed.id ?? randomUUID();
+  await pool.execute('INSERT INTO categories (id, name) VALUES (?, ?)', [id, parsed.name]);
+  response.status(201).json({ id, name: parsed.name });
+});
+
+app.patch('/api/categories/:id', async (request, response) => {
+  const parsed = categorySchema.parse(request.body);
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [rows] = await connection.execute<mysql.RowDataPacket[]>(
+      'SELECT name FROM categories WHERE id = ? FOR UPDATE',
+      [request.params.id],
+    );
+    if (rows.length === 0) {
+      await connection.rollback();
+      response.status(404).json({ error: 'La categoría no existe' });
+      return;
+    }
+    // Los productos guardan el nombre, así que el cambio se propaga a mano.
+    await connection.execute('UPDATE categories SET name = ? WHERE id = ?',
+      [parsed.name, request.params.id]);
+    await connection.execute('UPDATE products SET category = ? WHERE category = ?',
+      [parsed.name, rows[0].name]);
+    await connection.commit();
+    response.json({ id: request.params.id, name: parsed.name });
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+});
+
+app.delete('/api/categories/:id', async (request, response) => {
+  const [rows] = await pool.query<mysql.RowDataPacket[]>(
+    `SELECT c.name, COUNT(p.id) total FROM categories c
+     LEFT JOIN products p ON p.category = c.name
+     WHERE c.id = ? GROUP BY c.name`,
+    [request.params.id],
+  );
+  if (rows.length > 0 && Number(rows[0].total) > 0) {
+    response.status(409).json({
+      error: `“${rows[0].name}” tiene ${rows[0].total} producto(s). Muévelos antes de eliminarla.`,
+    });
+    return;
+  }
+  await pool.execute('DELETE FROM categories WHERE id = ?', [request.params.id]);
+  response.status(204).send();
+});
+
 const productSchema = z.object({
   id: z.string().min(1).max(64),
   name: z.string().min(1).max(160),
   sku: z.string().min(1).max(80),
   barcode: z.string().max(120).optional().default(''),
-  category: z.string().min(1).max(100),
+  category: z.string().trim().min(1).max(100),
   price: z.number().nonnegative(),
   stock: z.number().int().nonnegative(),
   minimumStock: z.number().int().nonnegative(),
@@ -130,7 +206,7 @@ app.get('/api/products', async (_request, response) => {
   const [rows] = await pool.query<mysql.RowDataPacket[]>(`
     SELECT id, name, sku, COALESCE(barcode, '') barcode, category,
       CAST(price AS DOUBLE) price, stock, minimum_stock minimumStock,
-      COALESCE(image_url, '') imageUrl
+      COALESCE(image_url, '') imageUrl, COALESCE(model_url, '') modelUrl
     FROM products ORDER BY name
   `);
   const [images] = await pool.query<mysql.RowDataPacket[]>(
@@ -147,6 +223,10 @@ app.get('/api/products', async (_request, response) => {
 
 app.post('/api/products', async (request, response) => {
   const parsed = productSchema.parse(request.body);
+  // Una categoría escrita desde el formulario queda registrada al vuelo, para que
+  // el desplegable la ofrezca la próxima vez.
+  await pool.execute('INSERT IGNORE INTO categories (id, name) VALUES (?, ?)',
+    [randomUUID(), parsed.category]);
   await pool.execute(
     `INSERT INTO products
       (id, name, sku, barcode, category, price, stock, minimum_stock, image_url)
@@ -163,6 +243,58 @@ app.post('/api/products', async (request, response) => {
 app.delete('/api/products/:id', async (request, response) => {
   await pool.execute('DELETE FROM products WHERE id = ?', [request.params.id]);
   response.status(204).send();
+});
+
+app.post('/api/products/:id/model', async (request, response) => {
+  const productId = request.params.id;
+  const [products] = await pool.query<mysql.RowDataPacket[]>(
+    'SELECT id FROM products WHERE id = ?', [productId],
+  );
+  if (products.length === 0) {
+    response.status(404).json({ error: 'Producto no encontrado' });
+    return;
+  }
+  const [images] = await pool.query<mysql.RowDataPacket[]>(
+    `SELECT view_index viewIndex, image_url imageUrl FROM product_images
+     WHERE product_id = ? ORDER BY view_index`,
+    [productId],
+  );
+  if (images.length === 0) {
+    response.status(400).json({
+      error: 'Sube al menos una fotografía antes de generar el modelo.',
+    });
+    return;
+  }
+
+  const { glb, report } = await buildModel(images.map((row) => ({
+    viewIndex: Number(row.viewIndex),
+    imageUrl: String(row.imageUrl),
+  })));
+
+  const uploaded = await new Promise<{ secure_url: string; public_id: string }>(
+    (resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        {
+          folder: 'my-love-depot/models',
+          public_id: `${productId}/model.glb`,
+          resource_type: 'raw',
+          overwrite: true,
+        },
+        (error, result) => {
+          if (error || !result) reject(error ?? new Error('Cloudinary no respondió'));
+          else resolve(result);
+        },
+      );
+      stream.end(glb);
+    },
+  );
+
+  await pool.execute(
+    `UPDATE products SET model_url = ?, model_public_id = ?, model_built_at = NOW()
+     WHERE id = ?`,
+    [uploaded.secure_url, uploaded.public_id, productId],
+  );
+  response.status(201).json({ modelUrl: uploaded.secure_url, ...report });
 });
 
 const movementSchema = z.object({
@@ -216,20 +348,17 @@ app.post('/api/uploads/product-image', upload.single('image'), async (request, r
   const productId = z.string().min(1).max(64).parse(request.body.productId);
   const viewIndex = z.coerce.number().int().min(0).max(4).parse(request.body.viewIndex ?? 0);
   let safeImage: Buffer;
+  let scanMetrics;
   try {
-    const metadata = await sharp(request.file.buffer, { failOn: 'error', limitInputPixels: 25_000_000 }).metadata();
-    if (!metadata.width || !metadata.height || !['jpeg', 'png', 'webp'].includes(metadata.format ?? '')) {
-      throw new Error('Formato de imagen no permitido');
-    }
-    if (metadata.width < 200 || metadata.height < 200) {
-      response.status(400).json({ error: 'La imagen debe medir al menos 200 x 200 píxeles' });
-      return;
-    }
-    safeImage = await sharp(request.file.buffer, { failOn: 'error', limitInputPixels: 25_000_000 })
-      .rotate().resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })
-      .webp({ quality: 84 }).toBuffer();
-  } catch {
-    response.status(400).json({ error: 'El archivo no es una imagen JPEG, PNG o WebP real y válida' });
+    const validated = await validateProductScan(request.file.buffer);
+    safeImage = validated.safeImage;
+    scanMetrics = validated.metrics;
+  } catch (error) {
+    response.status(400).json({
+      error: error instanceof ScanQualityError
+        ? error.message
+        : 'El archivo no es una imagen JPEG, PNG o WebP real y válida',
+    });
     return;
   }
   const result = await new Promise<{ secure_url: string; public_id: string }>((resolve, reject) => {
@@ -249,7 +378,11 @@ app.post('/api/uploads/product-image', upload.single('image'), async (request, r
     await pool.execute('UPDATE products SET image_url = ?, image_public_id = ? WHERE id = ?',
       [result.secure_url, result.public_id, productId]);
   }
-  response.status(201).json({ url: result.secure_url, publicId: result.public_id });
+  response.status(201).json({
+    url: result.secure_url,
+    publicId: result.public_id,
+    scanQuality: scanMetrics,
+  });
 });
 
 app.use((error: unknown, _request: Request, response: Response, _next: NextFunction) => {
@@ -260,6 +393,14 @@ app.use((error: unknown, _request: Request, response: Response, _next: NextFunct
   }
   if (error instanceof multer.MulterError) {
     response.status(400).json({ error: error.message });
+    return;
+  }
+  if (error instanceof ModelBuildError) {
+    response.status(422).json({ error: error.message });
+    return;
+  }
+  if ((error as { code?: string }).code === 'ER_DUP_ENTRY') {
+    response.status(409).json({ error: 'Ese nombre ya está registrado' });
     return;
   }
   response.status(500).json({ error: 'Error interno' });

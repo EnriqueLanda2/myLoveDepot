@@ -1,3 +1,11 @@
+CREATE TABLE IF NOT EXISTS categories (
+  id VARCHAR(64) PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_categories_name (name)
+);
+
 CREATE TABLE IF NOT EXISTS products (
   id VARCHAR(64) PRIMARY KEY,
   name VARCHAR(160) NOT NULL,
@@ -10,10 +18,13 @@ CREATE TABLE IF NOT EXISTS products (
   image_url TEXT NULL,
   image_public_id VARCHAR(255) NULL,
   model_url TEXT NULL,
+  model_public_id VARCHAR(255) NULL,
+  model_built_at TIMESTAMP NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_products_name (name),
-  INDEX idx_products_sku (sku)
+  INDEX idx_products_sku (sku),
+  INDEX idx_products_category (category)
 );
 
 CREATE TABLE IF NOT EXISTS product_images (

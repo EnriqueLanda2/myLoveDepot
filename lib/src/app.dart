@@ -28,7 +28,7 @@ class _DepotAppState extends State<DepotApp> {
 
   @override
   Widget build(BuildContext context) {
-    const seed = Color(0xff6f4e37);
+    const seed = Color(0xffd94f87);
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'My Love Depot',
@@ -36,21 +36,51 @@ class _DepotAppState extends State<DepotApp> {
         colorScheme: ColorScheme.fromSeed(
           seedColor: seed,
           brightness: Brightness.light,
-          surface: const Color(0xfffffbf7),
+          surface: const Color(0xfffffbfd),
         ),
         useMaterial3: true,
-        scaffoldBackgroundColor: const Color(0xfffff8f0),
-        cardTheme: const CardThemeData(
+        scaffoldBackgroundColor: const Color(0xfffff6fa),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xfffff6fa),
+          foregroundColor: Color(0xff49343f),
+          centerTitle: false,
           elevation: 0,
+        ),
+        navigationBarTheme: const NavigationBarThemeData(
+          backgroundColor: Color(0xfffffafd),
+          indicatorColor: Color(0xffffd7e6),
+          height: 72,
+        ),
+        navigationRailTheme: const NavigationRailThemeData(
+          backgroundColor: Color(0xfffffafd),
+          indicatorColor: Color(0xffffd7e6),
+        ),
+        cardTheme: const CardThemeData(
+          elevation: 1,
+          color: Color(0xffffffff),
+          shadowColor: Color(0x1ad94f87),
           margin: EdgeInsets.zero,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.all(Radius.circular(20)),
           ),
         ),
         inputDecorationTheme: const InputDecorationTheme(
+          filled: true,
+          fillColor: Colors.white,
           border: OutlineInputBorder(
             borderRadius: BorderRadius.all(Radius.circular(14)),
           ),
+        ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          ),
+        ),
+        chipTheme: const ChipThemeData(
+          side: BorderSide(color: Color(0xffffc4d9)),
+          shape: StadiumBorder(),
         ),
       ),
       home: ListenableBuilder(

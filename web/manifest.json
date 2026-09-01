@@ -3,9 +3,9 @@
   "short_name": "Depot",
   "start_url": ".",
   "display": "standalone",
-  "background_color": "#fff8f0",
-  "theme_color": "#6f4e37",
-  "description": "Inventario sencillo para tu almacén",
+  "background_color": "#fff6fa",
+  "theme_color": "#d94f87",
+  "description": "Nuestro inventario fácil, organizado y hecho con amor",
   "orientation": "any",
   "prefer_related_applications": false,
   "icons": [

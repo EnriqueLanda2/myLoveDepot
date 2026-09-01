@@ -28,11 +28,14 @@ class _ProductFormState extends State<ProductForm> {
   late final TextEditingController name;
   late final TextEditingController sku;
   late final TextEditingController barcode;
-  late final TextEditingController category;
   late final TextEditingController price;
   late final TextEditingController stock;
   late final TextEditingController minimum;
   final photos = List<Uint8List?>.filled(5, null);
+  String? category;
+  int categoryEpoch = 0;
+  bool saving = false;
+  String? photoError;
   static const viewNames = [
     'Frente',
     'Atrás',
@@ -50,7 +53,9 @@ class _ProductFormState extends State<ProductForm> {
     barcode = TextEditingController(
       text: product?.barcode ?? widget.initialBarcode,
     );
-    category = TextEditingController(text: product?.category);
+    category = product?.category.trim().isNotEmpty == true
+        ? product!.category.trim()
+        : null;
     price = TextEditingController(text: product?.price.toStringAsFixed(2));
     stock = TextEditingController(text: product?.stock.toString() ?? '0');
     minimum = TextEditingController(
@@ -67,15 +72,7 @@ class _ProductFormState extends State<ProductForm> {
 
   @override
   void dispose() {
-    for (final controller in [
-      name,
-      sku,
-      barcode,
-      category,
-      price,
-      stock,
-      minimum,
-    ]) {
+    for (final controller in [name, sku, barcode, price, stock, minimum]) {
       controller.dispose();
     }
     super.dispose();
@@ -101,24 +98,52 @@ class _ProductFormState extends State<ProductForm> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Vistas del producto',
+                      Text('Escanea el producto para crear su avatar 3D',
                           style: Theme.of(context).textTheme.titleMedium),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color:
+                              Theme.of(context).colorScheme.secondaryContainer,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: const Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.center_focus_strong_rounded),
+                            SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'La foto frontal es obligatoria. Pon el producto completo y centrado sobre un fondo liso que contraste, usa buena luz y mantén la cámara firme. No uses zoom ni cortes los bordes.',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
                       const Text(
-                          'Una foto es suficiente; cinco vistas mejoran la presentación 3D.'),
+                        'Con una foto se crea una aproximación giratoria. Agrega más vistas para que la forma sea más fiel.',
+                      ),
                       const SizedBox(height: 10),
                       Wrap(
                         spacing: 8,
                         runSpacing: 8,
                         children: List.generate(5, _photoTile),
                       ),
+                      if (photoError != null) ...[
+                        const SizedBox(height: 8),
+                        Text(photoError!,
+                            style: TextStyle(
+                                color: Theme.of(context).colorScheme.error)),
+                      ],
                     ],
                   ),
                 ),
                 _field(name, 'Nombre', width: 548),
                 _field(sku, 'SKU'),
                 _field(barcode, 'Código de barras o QR'),
-                _field(category, 'Categoría'),
+                _categoryField(),
                 _field(price, 'Precio', numeric: true),
                 _field(stock, 'Existencia inicial', integer: true),
                 _field(minimum, 'Stock mínimo', integer: true),
@@ -133,12 +158,120 @@ class _ProductFormState extends State<ProductForm> {
           child: const Text('Cancelar'),
         ),
         FilledButton.icon(
-          onPressed: _save,
-          icon: const Icon(Icons.save_outlined),
-          label: const Text('Guardar'),
+          onPressed: saving ? null : _save,
+          icon: saving
+              ? const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.view_in_ar_outlined),
+          label:
+              Text(saving ? 'Creando avatar 3D…' : 'Guardar y crear avatar 3D'),
         ),
       ],
     );
+  }
+
+  /// Desplegable con las categorías registradas más un atajo para dar de alta
+  /// una nueva sin salir del formulario.
+  Widget _categoryField() {
+    const newCategory = '__nueva__';
+    final names = widget.store.categoryNames;
+    final options = <String>{
+      ...names,
+      if (category != null && category!.isNotEmpty) category!,
+    }.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+    return SizedBox(
+      width: 268,
+      child: DropdownButtonFormField<String>(
+        // El FormField guarda su propio valor, así que se recrea en cada cambio
+        // para que nunca se quede mostrando el atajo "Registrar categoría".
+        key: ValueKey('$categoryEpoch-$category'),
+        initialValue: category,
+        isExpanded: true,
+        decoration: const InputDecoration(labelText: 'Categoría'),
+        items: [
+          ...options.map(
+            (item) => DropdownMenuItem(
+              value: item,
+              child: Text(item, overflow: TextOverflow.ellipsis),
+            ),
+          ),
+          const DropdownMenuItem(
+            value: newCategory,
+            child: Row(children: [
+              Icon(Icons.add, size: 18),
+              SizedBox(width: 8),
+              Text('Registrar categoría'),
+            ]),
+          ),
+        ],
+        onChanged: (value) async {
+          if (value == newCategory) {
+            final created = await _registerCategory();
+            if (mounted) {
+              setState(() {
+                category = created ?? category;
+                categoryEpoch++;
+              });
+            }
+            return;
+          }
+          setState(() => category = value);
+        },
+        validator: (value) =>
+            value == null || value.isEmpty ? 'Elige una categoría' : null,
+      ),
+    );
+  }
+
+  Future<String?> _registerCategory() async {
+    final controller = TextEditingController();
+    String? error;
+    try {
+      return await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (dialogContext, setDialogState) => AlertDialog(
+            title: const Text('Nueva categoría'),
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: InputDecoration(
+                labelText: 'Nombre',
+                errorText: error,
+              ),
+              onSubmitted: (_) => Navigator.pop(dialogContext, controller.text),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: () async {
+                  final name = controller.text.trim();
+                  final failure = await widget.store.saveCategory(name);
+                  if (failure != null) {
+                    setDialogState(() => error = failure);
+                    return;
+                  }
+                  if (dialogContext.mounted) {
+                    Navigator.pop(dialogContext, name);
+                  }
+                },
+                child: const Text('Registrar'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } finally {
+      controller.dispose();
+    }
   }
 
   Widget _field(
@@ -179,6 +312,14 @@ class _ProductFormState extends State<ProductForm> {
   Future<void> _save() async {
     if (!formKey.currentState!.validate()) return;
     final current = widget.product;
+    final hasFrontPhoto = photos[0] != null ||
+        (current?.imageUrls.isNotEmpty == true) ||
+        (current?.imageUrl.isNotEmpty == true);
+    if (!hasFrontPhoto) {
+      setState(() => photoError =
+          'Toma primero la foto frontal siguiendo las indicaciones.');
+      return;
+    }
     if (widget.store.barcodeBelongsToAnotherProduct(
       barcode.text,
       current?.id,
@@ -190,25 +331,38 @@ class _ProductFormState extends State<ProductForm> {
       );
       return;
     }
-    await widget.store.saveProduct(
+    setState(() {
+      saving = true;
+      photoError = null;
+    });
+    final failure = await widget.store.saveProduct(
       Product(
         id: current?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
         name: name.text.trim(),
         sku: sku.text.trim(),
-        category: category.text.trim(),
+        category: category!.trim(),
         price: double.parse(price.text),
         stock: int.parse(stock.text),
         minimumStock: int.parse(minimum.text),
         barcode: barcode.text.trim(),
         photoBase64: photos[0] == null ? '' : base64Encode(photos[0]!),
         imageUrl: current?.imageUrl ?? '',
+        modelUrl: current?.modelUrl ?? '',
         imageUrls: current?.imageUrls ?? [],
         pendingImagesBase64: photos
             .map((item) => item == null ? '' : base64Encode(item))
             .toList(),
       ),
     );
-    if (mounted) Navigator.pop(context);
+    if (!mounted) return;
+    setState(() => saving = false);
+    if (failure != null) {
+      setState(() => photoError = failure);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(failure)));
+      return;
+    }
+    Navigator.pop(context);
   }
 
   Widget _photoTile(int index) {
@@ -244,7 +398,12 @@ class _ProductFormState extends State<ProductForm> {
             ),
           ),
           const SizedBox(height: 4),
-          Text(viewNames[index], style: Theme.of(context).textTheme.labelSmall),
+          Text(
+              index == 0
+                  ? '${viewNames[index]} · obligatoria'
+                  : viewNames[index],
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.labelSmall),
         ],
       ),
     );
@@ -255,6 +414,20 @@ class _ProductFormState extends State<ProductForm> {
       context: context,
       builder: (context) => SafeArea(
         child: Wrap(children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+            child: Text(
+              index == 0
+                  ? 'Escaneo frontal obligatorio'
+                  : 'Vista ${viewNames[index]}',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+            child: Text(
+                'Fondo liso y contrastante · producto completo · buena luz · cámara firme'),
+          ),
           ListTile(
             leading: const Icon(Icons.camera_alt_outlined),
             title: const Text('Tomar foto'),

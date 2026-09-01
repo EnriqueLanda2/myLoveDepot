@@ -2,9 +2,12 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:model_viewer_plus/model_viewer_plus.dart';
 
 import '../inventory_store.dart';
 import '../models.dart';
+import '../widgets/love_mascot.dart';
+import 'categories_screen.dart';
 import 'product_form.dart';
 import 'scanner_screen.dart';
 import 'stock_dialog.dart';
@@ -41,43 +44,52 @@ class _HomeScreenState extends State<HomeScreen> {
                 title: const Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.warehouse_rounded),
-                    SizedBox(width: 10),
+                    LoveMascot(size: 42),
+                    SizedBox(width: 8),
                     Text('My Love Depot'),
                   ],
                 ),
                 actions: [
-                  Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      child: Chip(
-                        avatar:
-                            const Icon(Icons.verified_user_outlined, size: 18),
-                        label: Text(widget.store.role),
+                  if (wide)
+                    Center(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Chip(
+                          avatar: const Icon(Icons.verified_user_outlined,
+                              size: 18),
+                          label: Text(widget.store.role),
+                        ),
                       ),
                     ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: FilledButton.tonalIcon(
+                  if (wide)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: FilledButton.tonalIcon(
+                        onPressed: () => _scanProduct(context),
+                        icon: const Icon(Icons.qr_code_scanner_rounded),
+                        label: const Text('Escanear'),
+                      ),
+                    ),
+                  if (!wide)
+                    IconButton(
+                      tooltip: 'Escanear producto',
                       onPressed: () => _scanProduct(context),
                       icon: const Icon(Icons.qr_code_scanner_rounded),
-                      label: const Text('Escanear'),
                     ),
-                  ),
                   IconButton(
                     tooltip: 'Cerrar sesión',
                     onPressed: widget.store.logout,
                     icon: const Icon(Icons.logout),
                   ),
-                  Padding(
-                    padding: const EdgeInsets.only(right: 16),
-                    child: FilledButton.icon(
-                      onPressed: () => _openProductForm(context),
-                      icon: const Icon(Icons.add),
-                      label: const Text('Nuevo producto'),
+                  if (wide)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 16),
+                      child: FilledButton.icon(
+                        onPressed: () => _openProductForm(context),
+                        icon: const Icon(Icons.add),
+                        label: const Text('Nuevo producto'),
+                      ),
                     ),
-                  ),
                 ],
               ),
               body: Row(
@@ -98,6 +110,11 @@ class _HomeScreenState extends State<HomeScreen> {
                           icon: Icon(Icons.inventory_2_outlined),
                           selectedIcon: Icon(Icons.inventory_2),
                           label: Text('Productos'),
+                        ),
+                        NavigationRailDestination(
+                          icon: Icon(Icons.label_outline),
+                          selectedIcon: Icon(Icons.label),
+                          label: Text('Categorías'),
                         ),
                         NavigationRailDestination(
                           icon: Icon(Icons.swap_horiz_rounded),
@@ -126,10 +143,22 @@ class _HomeScreenState extends State<HomeScreen> {
                           label: 'Productos',
                         ),
                         NavigationDestination(
+                          icon: Icon(Icons.label_outline),
+                          selectedIcon: Icon(Icons.label),
+                          label: 'Categorías',
+                        ),
+                        NavigationDestination(
                           icon: Icon(Icons.swap_horiz_rounded),
                           label: 'Movimientos',
                         ),
                       ],
+                    ),
+              floatingActionButton: wide
+                  ? null
+                  : FloatingActionButton.extended(
+                      onPressed: () => _openProductForm(context),
+                      icon: const Icon(Icons.add_rounded),
+                      label: const Text('Nuevo producto'),
                     ),
             );
           },
@@ -149,6 +178,7 @@ class _HomeScreenState extends State<HomeScreen> {
             },
           ),
         1 => _productsPage(),
+        2 => CategoriesPage(store: widget.store),
         _ => _MovementsPage(store: widget.store),
       };
 
@@ -168,6 +198,11 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          Text('Tus productos',
+              style: Theme.of(context).textTheme.headlineSmall),
+          const SizedBox(height: 4),
+          const Text('Busca, consulta existencias o registra algo nuevo.'),
+          const SizedBox(height: 16),
           Wrap(
             spacing: 12,
             runSpacing: 12,
@@ -304,6 +339,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           body: _ProductDetails(
             product: product,
+            store: widget.store,
             onStock: () => showStockDialog(context, widget.store, product),
             onEdit: () {
               Navigator.pop(context);
@@ -338,9 +374,14 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 class _ProductDetails extends StatefulWidget {
-  const _ProductDetails(
-      {required this.product, required this.onStock, required this.onEdit});
+  const _ProductDetails({
+    required this.product,
+    required this.store,
+    required this.onStock,
+    required this.onEdit,
+  });
   final Product product;
+  final InventoryStore store;
   final VoidCallback onStock;
   final VoidCallback onEdit;
 
@@ -350,6 +391,23 @@ class _ProductDetails extends StatefulWidget {
 
 class _ProductDetailsState extends State<_ProductDetails> {
   int imageIndex = 0;
+  bool showModel = true;
+  bool building = false;
+
+  Future<void> _buildModel() async {
+    final messenger = ScaffoldMessenger.of(context);
+    // El diálogo no escucha al store, así que el progreso se lleva aquí.
+    setState(() => building = true);
+    final failure = await widget.store.buildModel(widget.product);
+    if (!mounted) return;
+    messenger.showSnackBar(SnackBar(
+      content: Text(failure ?? 'Modelo 3D generado a partir de las fotos.'),
+    ));
+    setState(() {
+      building = false;
+      showModel = failure == null;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -359,42 +417,63 @@ class _ProductDetailsState extends State<_ProductDetails> {
         : product.imageUrl.isNotEmpty
             ? [product.imageUrl]
             : <String>[];
+    final hasModel = product.modelUrl.isNotEmpty;
     return LayoutBuilder(builder: (context, constraints) {
       final wide = constraints.maxWidth > 760;
       final gallery = Container(
         color: Theme.of(context).colorScheme.surfaceContainerLow,
-        child: images.isEmpty
-            ? const Center(child: Icon(Icons.inventory_2_outlined, size: 110))
-            : Column(children: [
-                Expanded(
-                  child: PageView.builder(
-                    itemCount: images.length,
-                    onPageChanged: (value) =>
-                        setState(() => imageIndex = value),
-                    itemBuilder: (_, index) => AnimatedScale(
-                      scale: imageIndex == index ? 1 : .92,
-                      duration: const Duration(milliseconds: 250),
-                      child: InteractiveViewer(
-                        minScale: .8,
-                        maxScale: 4,
-                        child: Image.network(
-                          images[index],
-                          fit: BoxFit.contain,
-                          errorBuilder: (_, __, ___) => const Center(
-                              child:
-                                  Icon(Icons.broken_image_outlined, size: 70)),
+        child: hasModel && showModel
+            ? _ModelStage(
+                product: product,
+                onShowPhotos: images.isEmpty
+                    ? null
+                    : () => setState(() => showModel = false),
+              )
+            : images.isEmpty
+                ? const Center(
+                    child: Icon(Icons.inventory_2_outlined, size: 110))
+                : Column(children: [
+                    if (hasModel)
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 12, right: 12),
+                          child: TextButton.icon(
+                            onPressed: () => setState(() => showModel = true),
+                            icon: const Icon(Icons.view_in_ar_outlined),
+                            label: const Text('Ver modelo 3D'),
+                          ),
+                        ),
+                      ),
+                    Expanded(
+                      child: PageView.builder(
+                        itemCount: images.length,
+                        onPageChanged: (value) =>
+                            setState(() => imageIndex = value),
+                        itemBuilder: (_, index) => AnimatedScale(
+                          scale: imageIndex == index ? 1 : .92,
+                          duration: const Duration(milliseconds: 250),
+                          child: InteractiveViewer(
+                            minScale: .8,
+                            maxScale: 4,
+                            child: Image.network(
+                              images[index],
+                              fit: BoxFit.contain,
+                              errorBuilder: (_, __, ___) => const Center(
+                                  child: Icon(Icons.broken_image_outlined,
+                                      size: 70)),
+                            ),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text(images.length > 1
-                      ? 'Desliza para girar · Vista ${imageIndex + 1} de ${images.length}'
-                      : 'Pellizca para ampliar la imagen'),
-                ),
-              ]),
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(images.length > 1
+                          ? 'Desliza para girar · Vista ${imageIndex + 1} de ${images.length}'
+                          : 'Pellizca para ampliar la imagen'),
+                    ),
+                  ]),
       );
       final info = SingleChildScrollView(
         padding: const EdgeInsets.all(28),
@@ -434,6 +513,13 @@ class _ProductDetailsState extends State<_ProductDetails> {
               onPressed: widget.onEdit,
               icon: const Icon(Icons.edit_outlined),
               label: const Text('Editar producto')),
+          const SizedBox(height: 10),
+          _ModelButton(
+            hasModel: hasModel,
+            hasPhotos: images.isNotEmpty,
+            building: building || widget.store.isBuildingModel(product.id),
+            onPressed: _buildModel,
+          ),
         ]),
       );
       return wide
@@ -462,6 +548,97 @@ class _ProductDetailsState extends State<_ProductDetails> {
               ])),
         ]),
       );
+}
+
+/// Visor del modelo generado a partir de las fotografías del producto.
+class _ModelStage extends StatelessWidget {
+  const _ModelStage({required this.product, this.onShowPhotos});
+
+  final Product product;
+  final VoidCallback? onShowPhotos;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Column(children: [
+      Expanded(
+        child: ModelViewer(
+          key: ValueKey(product.modelUrl),
+          src: product.modelUrl,
+          alt: 'Modelo 3D de ${product.name}',
+          autoRotate: true,
+          autoRotateDelay: 600,
+          cameraControls: true,
+          cameraOrbit: '25deg 70deg 105%',
+          shadowIntensity: 0.85,
+          exposure: 1.05,
+          backgroundColor: colors.surfaceContainerLow,
+        ),
+      ),
+      Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Flexible(
+              child: Text(
+                'Arrastra para girar · pellizca para acercar · avatar calculado desde las fotos',
+                textAlign: TextAlign.center,
+              ),
+            ),
+            if (onShowPhotos != null) ...[
+              const SizedBox(width: 12),
+              TextButton.icon(
+                onPressed: onShowPhotos,
+                icon: const Icon(Icons.photo_library_outlined),
+                label: const Text('Fotos'),
+              ),
+            ],
+          ],
+        ),
+      ),
+    ]);
+  }
+}
+
+class _ModelButton extends StatelessWidget {
+  const _ModelButton({
+    required this.hasModel,
+    required this.hasPhotos,
+    required this.building,
+    required this.onPressed,
+  });
+
+  final bool hasModel;
+  final bool hasPhotos;
+  final bool building;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    if (building) {
+      return OutlinedButton.icon(
+        onPressed: null,
+        icon: const SizedBox(
+          width: 18,
+          height: 18,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+        label: const Text('Generando modelo 3D…'),
+      );
+    }
+    return OutlinedButton.icon(
+      onPressed: hasPhotos ? onPressed : null,
+      icon: const Icon(Icons.view_in_ar_outlined),
+      label: Text(
+        !hasPhotos
+            ? 'Agrega fotos para generar el modelo'
+            : hasModel
+                ? 'Regenerar modelo 3D'
+                : 'Generar modelo 3D',
+      ),
+    );
+  }
 }
 
 class _ProductThumb extends StatelessWidget {

@@ -1,5 +1,31 @@
 enum MovementType { incoming, outgoing }
 
+/// Categoría registrada del catálogo. Se llama así, y no `Category`, porque
+/// `flutter/foundation` ya exporta una anotación con ese nombre.
+class ProductCategory {
+  const ProductCategory({
+    required this.id,
+    required this.name,
+    this.productCount = 0,
+  });
+
+  final String id;
+  final String name;
+  final int productCount;
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'productCount': productCount,
+      };
+
+  factory ProductCategory.fromJson(Map<String, dynamic> json) => ProductCategory(
+        id: json['id'] as String,
+        name: json['name'] as String,
+        productCount: (json['productCount'] as num?)?.toInt() ?? 0,
+      );
+}
+
 class Product {
   Product({
     required this.id,

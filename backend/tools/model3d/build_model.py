@@ -1,0 +1,96 @@
+"""Construye el modelo 3D de un producto a partir de sus fotografías.
+
+Uso:
+    python build_model.py --input <carpeta> --output <archivo.glb>
+
+La carpeta debe contener las vistas nombradas `view-0.*` … `view-4.*`, en el
+mismo orden que el formulario de la app: Frente, Atrás, Izquierda, Derecha y
+Arriba. Basta con una; cuantas más haya, más ajustado sale el contorno.
+
+Al terminar imprime un resumen JSON en la salida estándar para que la API pueda
+registrar qué vistas se aprovecharon.
+"""
+
+from __future__ import annotations
+
+import argparse
+import io
+import json
+import sys
+from pathlib import Path
+
+from atlas import Atlas
+from glb import write_glb
+from mesher import carve, surface
+from silhouette import estimate_extents, load_view
+
+VIEW_COUNT = 5
+DEFAULT_RESOLUTION = 56
+DEFAULT_SMOOTHING = 4
+JPEG_QUALITY = 86
+
+
+def build(source: Path, destination: Path, resolution: int,
+          smoothing: int) -> dict:
+    views = []
+    skipped = []
+    for index in range(VIEW_COUNT):
+        candidates = sorted(source.glob(f'view-{index}.*'))
+        if not candidates:
+            continue
+        view = load_view(index, candidates[0])
+        if view is None:
+            skipped.append(index)
+        else:
+            views.append(view)
+
+    if not views:
+        raise SystemExit(
+            'Ninguna foto permitió separar el producto del fondo. '
+            'Usa un fondo liso y que contraste con el producto.',
+        )
+
+    extents = estimate_extents(views)
+    occupancy, dims = carve(views, extents, resolution)
+    atlas = Atlas(views)
+    geometry = surface(occupancy, dims, extents, atlas, smoothing)
+
+    texture = io.BytesIO()
+    atlas.image.save(texture, format='JPEG', quality=JPEG_QUALITY, optimize=True)
+    size = write_glb(destination, geometry, texture.getvalue(), 'image/jpeg')
+
+    return {
+        'views': [view.index for view in views],
+        'skippedViews': skipped,
+        'grid': list(dims),
+        'extents': [round(value, 4) for value in extents],
+        'triangles': len(geometry.indices) // 3,
+        'bytes': size,
+    }
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--input', required=True, type=Path)
+    parser.add_argument('--output', required=True, type=Path)
+    parser.add_argument('--resolution', type=int, default=DEFAULT_RESOLUTION)
+    parser.add_argument('--smooth', type=int, default=DEFAULT_SMOOTHING,
+                        help='pasadas de suavizado sobre la malla de vóxeles')
+    arguments = parser.parse_args()
+
+    if not arguments.input.is_dir():
+        raise SystemExit(f'No existe la carpeta de vistas: {arguments.input}')
+    arguments.output.parent.mkdir(parents=True, exist_ok=True)
+
+    report = build(
+        arguments.input,
+        arguments.output,
+        max(16, min(160, arguments.resolution)),
+        max(0, min(8, arguments.smooth)),
+    )
+    json.dump(report, sys.stdout)
+    sys.stdout.write('\n')
+
+
+if __name__ == '__main__':
+    main()

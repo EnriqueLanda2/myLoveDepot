@@ -41,6 +41,51 @@ class DepotApiClient {
         .toList();
   }
 
+  Future<List<ProductCategory>> getCategories() async {
+    final response = await http.get(_uri('/api/categories'), headers: _headers);
+    _ensureSuccess(response);
+    return (jsonDecode(response.body) as List)
+        .map((item) => ProductCategory.fromJson(item as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<ProductCategory> createCategory(String name) async {
+    final response = await http.post(
+      _uri('/api/categories'),
+      headers: _headers,
+      body: jsonEncode({'name': name}),
+    );
+    _ensureSuccess(response);
+    return ProductCategory.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  Future<ProductCategory> renameCategory(String id, String name) async {
+    final response = await http.patch(
+      _uri('/api/categories/$id'),
+      headers: _headers,
+      body: jsonEncode({'name': name}),
+    );
+    _ensureSuccess(response);
+    return ProductCategory.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  Future<void> deleteCategory(String id) async {
+    final response =
+        await http.delete(_uri('/api/categories/$id'), headers: _headers);
+    _ensureSuccess(response);
+  }
+
+  /// Pide al servidor que reconstruya el modelo 3D con las fotos ya subidas.
+  Future<String> buildProductModel(String productId) async {
+    final response = await http.post(
+      _uri('/api/products/$productId/model'),
+      headers: _headers,
+    );
+    _ensureSuccess(response);
+    return (jsonDecode(response.body) as Map<String, dynamic>)['modelUrl']
+        as String;
+  }
+
   Future<String> uploadProductImage(
       String productId, int viewIndex, Uint8List bytes) async {
     final request = http.MultipartRequest(
@@ -106,6 +151,19 @@ class DepotApiException implements Exception {
   DepotApiException(this.statusCode, this.message);
   final int statusCode;
   final String message;
+
+  /// El texto que la API manda en `error`, listo para enseñarlo al usuario.
+  String get reason {
+    try {
+      final decoded = jsonDecode(message);
+      if (decoded is Map && decoded['error'] is String) {
+        return decoded['error'] as String;
+      }
+    } on FormatException {
+      // La respuesta no era JSON; se usa el mensaje genérico.
+    }
+    return 'No se pudo completar la operación.';
+  }
 
   @override
   String toString() => 'DepotApiException($statusCode): $message';

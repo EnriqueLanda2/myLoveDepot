@@ -7,14 +7,23 @@ para compilarse como PWA o APK Android.
 
 - Dashboard con existencias, valor total y alertas de stock bajo.
 - Alta y edición de productos (nombre, SKU, categoría, precio y existencia).
+- Catálogo de categorías registrables, con desplegable en el formulario.
 - Entradas y salidas de inventario con validación de existencias.
 - Buscador y filtros por estado.
 - Historial de movimientos.
 - Persistencia local en el dispositivo y datos de demostración iniciales.
 - Escaneo de códigos de barras y QR con acceso directo a registrar stock.
 - Captura de hasta cinco vistas verificadas del producto.
-- Galería interactiva tipo giro, sin solicitar archivos GLB o glTF.
+- Modelo 3D generado en el servidor a partir de esas fotos, sin pedir URLs.
 - Inicio de sesión JWT para los roles `wifey` y `husband`.
+
+## Categorías
+
+Las categorías viven en su propia tabla y se administran desde la pestaña
+**Categorías**: se crean, se renombran (el cambio se propaga a los productos que
+las usan) y se eliminan cuando ningún producto las ocupa. El formulario de
+producto ya no pide escribir la categoría a mano: la elige de un desplegable, y
+desde ahí mismo se puede registrar una nueva sin cerrar el formulario.
 
 ## Ejecutar
 
@@ -60,10 +69,57 @@ una unidad sugerida; el usuario confirma la cantidad. Si el código es nuevo, se
 abre el formulario con el código precargado. Chrome debe
 tener permiso para usar la cámara y la PWA debe servirse mediante HTTPS.
 
-El formulario acepta una vista frontal y hasta cuatro vistas adicionales. El
-detalle permite desplazarse entre ellas como un giro del producto. Una sola foto
-no contiene información real de sus caras ocultas, por lo que no se inventan
-vistas inexistentes ni se presenta el resultado como fotogrametría real.
+El formulario exige una vista frontal y acepta hasta cuatro vistas adicionales
+(Frente, Atrás, Izquierda, Derecha y Arriba). Antes de subirla, la API comprueba
+resolución, enfoque, iluminación, contraste con el fondo, encuadre y centrado.
+Si la captura no sirve para obtener una silueta limpia, la app explica qué debe
+corregirse y obliga a repetir el escaneo.
+
+## Modelo 3D a partir de las fotos
+
+El formulario ya no pide una URL `.glb` ni `.gltf`. Cuando se guardan fotos
+nuevas, la API reconstruye el modelo con el generador de `backend/tools/model3d`,
+escrito en Python (numpy y Pillow). El detalle del producto lo muestra en un
+visor que se puede girar, con un botón para regenerarlo.
+
+El método es **casco visual** (*shape from silhouette*):
+
+1. Cada foto se segmenta para separar el producto del fondo y quedarse con su
+   silueta.
+2. Las razones de aspecto de las siluetas resuelven las proporciones X:Y:Z del
+   producto por mínimos cuadrados.
+3. Cada silueta se extruye a lo largo del eje desde el que se fotografió y el
+   volumen es la **intersección** de todas esas extrusiones.
+4. La superficie se extrae de los vóxeles, se relaja con un suavizado de Taubin
+   y se texturiza proyectando sobre cada cara la foto que la mira de frente.
+5. El resultado se escribe como `.glb` con la textura embebida y se sube a
+   Cloudinary.
+
+Conviene saber qué es y qué no es. Con cinco vistas ortogonales el contorno sale
+exacto y **no se inventa nada**: se obtiene el volumen más pequeño compatible con
+las fotos. Lo que este método no puede recuperar son las concavidades, porque
+ninguna silueta las delata; un tazón sale como un cilindro macizo. No es
+fotogrametría y no pretende serlo.
+
+Con una sola foto frontal se genera un avatar `.glb` completamente giratorio,
+pero la profundidad es una aproximación proporcional porque la cámara no ve la
+parte trasera ni los costados. Cada vista adicional reemplaza parte de esa
+estimación con geometría observada y mejora la fidelidad.
+
+Las fotos salen mucho mejor con **fondo liso y contrastado**: de ahí depende la
+segmentación. Si ninguna foto se puede separar del fondo, la API responde con un
+mensaje que lo explica en lugar de generar un modelo inservible.
+
+El generador también se puede usar suelto, sin la API:
+
+```powershell
+cd backend/tools/model3d
+pip install -r requirements.txt
+python build_model.py --input <carpeta-con-view-0..4> --output producto.glb
+```
+
+Acepta `--resolution` (lado de la rejilla de vóxeles, 56 por omisión) y
+`--smooth` (pasadas de suavizado, 4 por omisión).
 
 ## Backend, MySQL y Cloudinary
 
@@ -75,9 +131,14 @@ confirmarse en Git.
 cd backend
 Copy-Item .env.example .env
 npm install
+pip install -r tools/model3d/requirements.txt
 npm run db:init
 npm run dev
 ```
+
+En Windows el ejecutable de Python suele llamarse `python` y no `python3`; en ese
+caso agrega `MODEL3D_PYTHON=python` a `backend/.env`. La imagen Docker instala su
+propio intérprete y ya trae la variable configurada.
 
 Completa primero `backend/.env` con la conexión MySQL, el certificado CA de
 Aiven codificado en Base64, las tres credenciales de Cloudinary y una clave

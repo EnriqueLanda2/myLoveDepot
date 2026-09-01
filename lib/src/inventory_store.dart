@@ -9,21 +9,41 @@ import 'models.dart';
 class InventoryStore extends ChangeNotifier {
   static const _productsKey = 'depot_products_v1';
   static const _movementsKey = 'depot_movements_v1';
+  static const _categoriesKey = 'depot_categories_v1';
   static const _tokenKey = 'depot_auth_token_v1';
   static const _roleKey = 'depot_auth_role_v1';
 
   final List<Product> _products = [];
   final List<StockMovement> _movements = [];
+  final List<ProductCategory> _categories = [];
   final DepotApiClient api = DepotApiClient();
   bool isLoading = true;
   String role = '';
   String username = '';
   String? authError;
 
+  /// Productos cuyo modelo 3D se está generando en el servidor.
+  final Set<String> _buildingModels = {};
+
   bool get isAuthenticated => api.token.isNotEmpty;
 
   List<Product> get products => List.unmodifiable(_products);
   List<StockMovement> get movements => List.unmodifiable(_movements);
+  List<ProductCategory> get categories => List.unmodifiable(_categories);
+
+  /// Nombres disponibles en el desplegable: los registrados más los que ya
+  /// usan los productos, por si el catálogo aún no se sincronizó.
+  List<String> get categoryNames {
+    final names = <String>{
+      for (final category in _categories) category.name,
+      for (final product in _products)
+        if (product.category.trim().isNotEmpty) product.category.trim(),
+    }.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return names;
+  }
+
+  bool isBuildingModel(String productId) => _buildingModels.contains(productId);
   int get totalUnits => _products.fold(0, (sum, item) => sum + item.stock);
   int get lowStockCount => _products.where((item) => item.hasLowStock).length;
   double get inventoryValue =>
@@ -73,6 +93,15 @@ class InventoryStore extends ChangeNotifier {
     role = preferences.getString(_roleKey) ?? '';
     final savedProducts = preferences.getString(_productsKey);
     final savedMovements = preferences.getString(_movementsKey);
+    final savedCategories = preferences.getString(_categoriesKey);
+
+    if (savedCategories != null) {
+      _categories.addAll(
+        (jsonDecode(savedCategories) as List).map(
+          (item) => ProductCategory.fromJson(item as Map<String, dynamic>),
+        ),
+      );
+    }
 
     if (savedProducts == null) {
       _products.addAll(_demoProducts);
@@ -97,11 +126,7 @@ class InventoryStore extends ChangeNotifier {
 
     if (api.enabled) {
       try {
-        final remoteProducts = await api.getProducts();
-        _products
-          ..clear()
-          ..addAll(remoteProducts);
-        await _save();
+        await _refreshRemote();
       } on Object catch (error) {
         debugPrint('No se pudo sincronizar el inventario: $error');
       }
@@ -118,11 +143,7 @@ class InventoryStore extends ChangeNotifier {
       final preferences = await SharedPreferences.getInstance();
       await preferences.setString(_tokenKey, api.token);
       await preferences.setString(_roleKey, role);
-      final remoteProducts = await api.getProducts();
-      _products
-        ..clear()
-        ..addAll(remoteProducts);
-      await _save();
+      await _refreshRemote();
       notifyListeners();
       return true;
     } on DepotApiException catch (error) {
@@ -151,10 +172,102 @@ class InventoryStore extends ChangeNotifier {
     _products
       ..clear()
       ..addAll(remoteProducts);
+    final remoteCategories = await api.getCategories();
+    _categories
+      ..clear()
+      ..addAll(remoteCategories);
     await _save();
   }
 
-  Future<void> saveProduct(Product product) async {
+  /// Registra una categoría nueva y devuelve el mensaje de error si falla.
+  Future<String?> saveCategory(String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return 'Escribe un nombre para la categoría.';
+    if (_categories.any(
+      (item) => item.name.toLowerCase() == trimmed.toLowerCase(),
+    )) {
+      return 'Esa categoría ya está registrada.';
+    }
+    if (!api.enabled) {
+      _categories.add(ProductCategory(id: 'local-$trimmed', name: trimmed));
+      await _save();
+      notifyListeners();
+      return null;
+    }
+    try {
+      final created = await api.createCategory(trimmed);
+      _categories
+        ..removeWhere((item) => item.id == created.id)
+        ..add(created);
+      await _save();
+      notifyListeners();
+      return null;
+    } on DepotApiException catch (error) {
+      return error.reason;
+    } on Object {
+      return 'No hay conexión con el servidor.';
+    }
+  }
+
+  Future<String?> renameCategory(ProductCategory category, String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return 'Escribe un nombre para la categoría.';
+    if (!api.enabled) return 'Inicia sesión para editar el catálogo.';
+    try {
+      await api.renameCategory(category.id, trimmed);
+      for (final product in _products) {
+        if (product.category == category.name) product.category = trimmed;
+      }
+      await _refreshRemote();
+      notifyListeners();
+      return null;
+    } on DepotApiException catch (error) {
+      return error.reason;
+    } on Object {
+      return 'No hay conexión con el servidor.';
+    }
+  }
+
+  Future<String?> deleteCategory(ProductCategory category) async {
+    if (!api.enabled) {
+      _categories.removeWhere((item) => item.id == category.id);
+      await _save();
+      notifyListeners();
+      return null;
+    }
+    try {
+      await api.deleteCategory(category.id);
+      await _refreshRemote();
+      notifyListeners();
+      return null;
+    } on DepotApiException catch (error) {
+      return error.reason;
+    } on Object {
+      return 'No hay conexión con el servidor.';
+    }
+  }
+
+  /// Pide al servidor reconstruir el modelo 3D a partir de las fotos subidas.
+  Future<String?> buildModel(Product product) async {
+    if (!api.enabled) return 'Inicia sesión para generar el modelo.';
+    if (_buildingModels.contains(product.id)) return null;
+    _buildingModels.add(product.id);
+    notifyListeners();
+    try {
+      product.modelUrl = await api.buildProductModel(product.id);
+      await _save();
+      return null;
+    } on DepotApiException catch (error) {
+      return error.reason;
+    } on Object {
+      return 'No hay conexión con el servidor.';
+    } finally {
+      _buildingModels.remove(product.id);
+      notifyListeners();
+    }
+  }
+
+  Future<String?> saveProduct(Product product) async {
     final index = _products.indexWhere((item) => item.id == product.id);
     if (index == -1) {
       _products.add(product);
@@ -179,18 +292,27 @@ class InventoryStore extends ChangeNotifier {
               base64Decode(encoded),
             ));
           }
-          if (uploaded.isNotEmpty) {
-            await _refreshRemote();
-          }
           product.pendingImagesBase64 = [];
           product.photoBase64 = '';
+          if (uploaded.isNotEmpty) {
+            // Las fotos ya están en el servidor: es el momento de rehacer el
+            // modelo 3D, que se arma a partir de ellas.
+            final modelFailure = await buildModel(product);
+            if (modelFailure != null) return modelFailure;
+            await _refreshRemote();
+          }
           await _save();
           notifyListeners();
         }
+      } on DepotApiException catch (error) {
+        debugPrint('El producto quedó local, pendiente de sincronizar: $error');
+        return error.reason;
       } on Object catch (error) {
         debugPrint('El producto quedó local, pendiente de sincronizar: $error');
+        return 'No hay conexión con el servidor. El producto quedó guardado solo en este dispositivo.';
       }
     }
+    return null;
   }
 
   Future<void> deleteProduct(String id) async {
@@ -270,6 +392,10 @@ class InventoryStore extends ChangeNotifier {
     await preferences.setString(
       _movementsKey,
       jsonEncode(_movements.map((item) => item.toJson()).toList()),
+    );
+    await preferences.setString(
+      _categoriesKey,
+      jsonEncode(_categories.map((item) => item.toJson()).toList()),
     );
   }
 
