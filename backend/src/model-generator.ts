@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-const python = process.env.MODEL3D_PYTHON ?? 'python3';
+const python = process.env.MODEL3D_PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3');
 const script = process.env.MODEL3D_SCRIPT
   ?? path.resolve(process.cwd(), 'tools/model3d/build_model.py');
 const timeoutMs = Number(process.env.MODEL3D_TIMEOUT_MS ?? 180_000);

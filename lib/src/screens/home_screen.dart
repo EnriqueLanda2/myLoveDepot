@@ -168,13 +168,20 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
           ),
-        // Scanner icon (narrow)
+        if (wide) const SizedBox(width: 8),
+        // Install App button
+        if (wide)
+          _AppBarAction(
+            icon: Icons.install_mobile_rounded,
+            label: 'DESCARGAR APP',
+            onPressed: () => _showInstallAppDialog(context),
+          ),
+        if (wide) const SizedBox(width: 8),
         if (!wide)
           IconButton(
-            tooltip: 'Escanear producto',
-            onPressed: () => _scanProduct(context),
-            icon: const Icon(Icons.qr_code_scanner_rounded,
-                color: _Colors.textSecondary),
+            tooltip: 'Descargar / Instalar App',
+            onPressed: () => _showInstallAppDialog(context),
+            icon: const Icon(Icons.install_mobile_rounded, color: _Colors.magenta),
           ),
         // Logout
         IconButton(
@@ -458,6 +465,136 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
     if (confirmed == true) await widget.store.deleteProduct(product.id);
+  }
+
+  void _showInstallAppDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Container(
+          width: 500,
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: _Colors.magenta.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(Icons.install_mobile_rounded, color: _Colors.magenta, size: 24),
+                  ),
+                  const SizedBox(width: 14),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'DESCARGAR / INSTALAR APLICACIÓN',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 1.2,
+                            color: _Colors.textPrimary,
+                          ),
+                        ),
+                        Text(
+                          'Instala My Love Depot en tu Android, iPhone o iPad',
+                          style: TextStyle(fontSize: 11, color: _Colors.textSecondary),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 16),
+
+              // iOS Guide
+              const Row(
+                children: [
+                  Icon(Icons.apple, color: _Colors.magenta, size: 20),
+                  SizedBox(width: 8),
+                  Text(
+                    'EN IPHONE / IPAD (iOS Safari):',
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: _Colors.magenta, letterSpacing: 0.5),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xfffff6fa),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: _Colors.stroke),
+                ),
+                child: const Column(
+                  children: [
+                    _InstallStep(number: '1', text: 'Abre Safari y toca el botón Compartir (cuadro con flecha ⎋ arriba o abajo).'),
+                    SizedBox(height: 6),
+                    _InstallStep(number: '2', text: 'Desplázate hacia abajo y selecciona "Agregar a inicio" (Add to Home Screen 📲).'),
+                    SizedBox(height: 6),
+                    _InstallStep(number: '3', text: 'Toca "Agregar". ¡La app aparecerá en tu iPhone como una app nativa!'),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              // Android Guide
+              const Row(
+                children: [
+                  Icon(Icons.android_rounded, color: _Colors.green, size: 20),
+                  SizedBox(width: 8),
+                  Text(
+                    'EN ANDROID / CHROME / EDGE:',
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: _Colors.green, letterSpacing: 0.5),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xfff0fdf4),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.green),
+                ),
+                child: const Column(
+                  children: [
+                    _InstallStep(number: '1', text: 'Toca los tres puntos (⋮) en la esquina de tu navegador Chrome o Edge.'),
+                    SizedBox(height: 6),
+                    _InstallStep(number: '2', text: 'Selecciona "Instalar aplicación" o "Agregar a la pantalla principal".'),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              Center(
+                child: FilledButton.icon(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  icon: const Icon(Icons.check_circle_outline_rounded, size: 18),
+                  label: const Text('¡ENTENDIDO!', style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1.1)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -1762,5 +1899,170 @@ class _MovementsPage extends StatelessWidget {
     String two(int value) => value.toString().padLeft(2, '0');
     return '${two(date.day)}/${two(date.month)}/${date.year} '
         '${two(date.hour)}:${two(date.minute)}';
+  }
+
+  void _showInstallAppDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Container(
+          width: 500,
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: _Colors.magenta.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(Icons.install_mobile_rounded, color: _Colors.magenta, size: 24),
+                  ),
+                  const SizedBox(width: 14),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'DESCARGAR / INSTALAR APLICACIÓN',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 1.2,
+                            color: _Colors.textPrimary,
+                          ),
+                        ),
+                        Text(
+                          'Instala My Love Depot en tu Android, iPhone o iPad',
+                          style: TextStyle(fontSize: 11, color: _Colors.textSecondary),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 16),
+
+              // iOS Guide
+              const Row(
+                children: [
+                  Icon(Icons.apple, color: _Colors.magenta, size: 20),
+                  SizedBox(width: 8),
+                  Text(
+                    'EN IPHONE / IPAD (iOS Safari):',
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: _Colors.magenta, letterSpacing: 0.5),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xfffff6fa),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: _Colors.stroke),
+                ),
+                child: const Column(
+                  children: [
+                    _InstallStep(number: '1', text: 'Abre Safari y toca el botón Compartir (cuadro con flecha ⎋ arriba o abajo).'),
+                    SizedBox(height: 6),
+                    _InstallStep(number: '2', text: 'Desplázate hacia abajo y selecciona "Agregar a inicio" (Add to Home Screen 📲).'),
+                    SizedBox(height: 6),
+                    _InstallStep(number: '3', text: 'Toca "Agregar". ¡La app aparecerá en tu iPhone como una app nativa!'),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              // Android Guide
+              const Row(
+                children: [
+                  Icon(Icons.android_rounded, color: _Colors.green, size: 20),
+                  SizedBox(width: 8),
+                  Text(
+                    'EN ANDROID / CHROME / EDGE:',
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: _Colors.green, letterSpacing: 0.5),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xfff0fdf4),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.green.shade200),
+                ),
+                child: const Column(
+                  children: [
+                    _InstallStep(number: '1', text: 'Toca los tres puntos (⋮) en la esquina de tu navegador Chrome o Edge.'),
+                    SizedBox(height: 6),
+                    _InstallStep(number: '2', text: 'Selecciona "Instalar aplicación" o "Agregar a la pantalla principal".'),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              Center(
+                child: FilledButton.icon(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  icon: const Icon(Icons.check_circle_outline_rounded, size: 18),
+                  label: const Text('¡ENTENDIDO!', style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1.1)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _InstallStep extends StatelessWidget {
+  const _InstallStep({required this.number, required this.text});
+  final String number;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 20,
+          height: 20,
+          alignment: Alignment.center,
+          decoration: const BoxDecoration(
+            color: _Colors.magenta,
+            shape: BoxShape.circle,
+          ),
+          child: Text(
+            number,
+            style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(fontSize: 12, color: _Colors.textPrimary, height: 1.3),
+          ),
+        ),
+      ],
+    );
   }
 }

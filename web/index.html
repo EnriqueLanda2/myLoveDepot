@@ -4,16 +4,35 @@
   <base href="$FLUTTER_BASE_HREF">
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="Inventario local para tablet">
-  <meta name="theme-color" content="#6f4e37">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="description" content="My Love Depot - Gestión de inventario y avatares 3D">
+  <meta name="theme-color" content="#d94f87">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="My Love Depot">
   <link rel="icon" type="image/svg+xml" href="icons/depot.svg">
+  <link rel="apple-touch-icon" href="icons/depot.svg">
   <link rel="manifest" href="manifest.json">
   <title>My Love Depot</title>
   <script type="module" src="./assets/packages/model_viewer_plus/assets/model-viewer.min.js" defer></script>
+  <script>
+    let deferredPrompt = null;
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      window.pwaCanInstall = true;
+    });
+    window.triggerPwaInstall = function() {
+      if (deferredPrompt) {
+        deferredPrompt.prompt();
+        deferredPrompt.userChoice.then(() => {
+          deferredPrompt = null;
+          window.pwaCanInstall = false;
+        });
+      }
+    };
+  </script>
 </head>
 <body>
   <script src="flutter_bootstrap.js" async></script>

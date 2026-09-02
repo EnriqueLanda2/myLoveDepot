@@ -1,9 +1,10 @@
 """Empaqueta las vistas recortadas en una sola textura y resuelve sus UV.
 
 Cada cara del modelo se texturiza con la fotografía que la mira de frente,
-proyectada ortogonalmente. Como la foto viene recortada al contorno y la rejilla
-de vóxeles abarca ese mismo contorno, la proyección es una regla de tres: no hace
-falta calibrar cámara ni estimar pose.
+proyectada ortogonalmente. Si falta alguna vista (por ejemplo, si el usuario solo
+subió la foto frontal), la vista faltante se sintetiza inteligentemente usando la
+vista frontal o la opuesta volteada, y los bordes neutros se rellenan con el color
+dominante del producto para evitar caras grises.
 """
 
 from __future__ import annotations
@@ -20,12 +21,12 @@ TILE = 512
 COLUMNS = 3
 ROWS = 2
 NEUTRAL_COLUMN, NEUTRAL_ROW = 2, 1
-FALLBACK_COLOUR = (168, 162, 154)
+FALLBACK_COLOUR = (225, 215, 210)
 
 
 @dataclass(frozen=True)
 class _PhotoSlot:
-    """Celda del atlas ocupada por una fotografía real."""
+    """Celda del atlas ocupada por una fotografía real o sintetizada."""
 
     column: int
     row: int
@@ -42,7 +43,7 @@ class _PhotoSlot:
 
 @dataclass(frozen=True)
 class _NeutralSlot:
-    """Celda de color liso para las caras que ninguna foto llegó a ver."""
+    """Celda de color liso con el color dominante del producto para caras sin foto."""
 
     def coordinates(self, _point: list[float], _half: list[float]) -> tuple[float, float]:
         return (
@@ -53,20 +54,42 @@ class _NeutralSlot:
 
 class Atlas:
     def __init__(self, views: list[View]) -> None:
+        dominant_color = _dominant_colour(views)
         self.image = Image.new(
-            'RGB', (COLUMNS * TILE, ROWS * TILE), _average_colour(views),
+            'RGB', (COLUMNS * TILE, ROWS * TILE), dominant_color,
         )
         self._neutral = _NeutralSlot()
         self._slots: dict[int, _PhotoSlot] = {}
-        for view in views:
-            column, row = view.index % COLUMNS, view.index // COLUMNS
-            self.image.paste(
-                view.crop.resize((TILE, TILE), Image.LANCZOS),
-                (column * TILE, row * TILE),
-            )
-            self._slots[view.index] = _PhotoSlot(
-                column=column, row=row, projection=PROJECTIONS[view.index],
-            )
+
+        view_by_index: dict[int, View] = {view.index: view for view in views}
+        primary_view = views[0] if views else None
+
+        # Para cada una de las 5 vistas posibles (0:Frente, 1:Atrás, 2:Izq, 3:Der, 4:Arriba)
+        for view_idx in range(5):
+            column, row = view_idx % COLUMNS, view_idx // COLUMNS
+            crop_to_use: Image.Image | None = None
+
+            if view_idx in view_by_index:
+                crop_to_use = view_by_index[view_idx].crop
+            elif view_idx == 1 and 0 in view_by_index:
+                # Atrás: si falta, usar la frontal volteada horizontalmente
+                crop_to_use = view_by_index[0].crop.transpose(Image.FLIP_LEFT_RIGHT)
+            elif view_idx == 2 and 3 in view_by_index:
+                # Izquierda: si falta, usar derecha
+                crop_to_use = view_by_index[3].crop.transpose(Image.FLIP_LEFT_RIGHT)
+            elif view_idx == 3 and 2 in view_by_index:
+                # Derecha: si falta, usar izquierda
+                crop_to_use = view_by_index[2].crop.transpose(Image.FLIP_LEFT_RIGHT)
+            elif primary_view is not None:
+                # Cualquier otra vista faltante: usar la vista principal
+                crop_to_use = primary_view.crop
+
+            if crop_to_use is not None:
+                resized = crop_to_use.resize((TILE, TILE), Image.LANCZOS)
+                self.image.paste(resized, (column * TILE, row * TILE))
+                self._slots[view_idx] = _PhotoSlot(
+                    column=column, row=row, projection=PROJECTIONS[view_idx],
+                )
 
     def slot_for(self, view_index: int | None):
         if view_index is None:
@@ -81,21 +104,27 @@ def _fraction(point: list[float], half: list[float], spec: tuple[int, int]) -> f
 
 
 def _atlas_axis(cell: int, fraction: float, cells: int) -> float:
-    # Medio téxel de margen a cada lado para que el filtrado bilineal nunca
-    # muestree la celda vecina.
     return (cell * TILE + 0.5 + fraction * (TILE - 1)) / (cells * TILE)
 
 
-def _average_colour(views: list[View]) -> tuple[int, int, int]:
+def _dominant_colour(views: list[View]) -> tuple[int, int, int]:
+    """Calcula el color dominante del producto buscando la mediana de los píxeles internos."""
     samples = []
     for view in views:
         pixels = np.asarray(
             view.crop.resize((64, 64), Image.BILINEAR), dtype=np.float32,
         )
         shape = Image.fromarray(view.mask.astype(np.uint8) * 255, mode='L')
-        inside = np.asarray(shape.resize((64, 64), Image.BILINEAR)) > 127
+        # Reducir la máscara un poco para evitar sombras o bordes del fondo
+        inside = np.asarray(shape.resize((64, 64), Image.BILINEAR)) > 200
         if inside.any():
-            samples.append(pixels[inside].mean(axis=0))
+            product_pixels = pixels[inside]
+            samples.append(product_pixels)
+
     if not samples:
         return FALLBACK_COLOUR
-    return tuple(int(round(channel)) for channel in np.mean(samples, axis=0))
+
+    all_pixels = np.vstack(samples)
+    # Mediana para evitar outliers oscuros o reflejos brillantes
+    median_color = np.median(all_pixels, axis=0)
+    return tuple(int(round(channel)) for channel in median_color)
