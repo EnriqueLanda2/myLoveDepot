@@ -28,17 +28,20 @@ class _DepotAppState extends State<DepotApp> {
 
   @override
   Widget build(BuildContext context) {
-    // ── Paleta principal ──────────────────────────────────────────────────────
-    const magenta = Color(0xffd94f87);       // acento principal
-    const magentaDim = Color(0x33d94f87);    // magenta translúcido
-    const magentaGlow = Color(0x1ad94f87);   // brillo suave
-    const bgDeep = Color(0xff030507);        // fondo más oscuro
-    const bgBase = Color(0xff090b0f);        // fondo base
-    const bgCard = Color(0xff0e1117);        // tarjetas
-    const bgSurface = Color(0xff141820);     // superficies elevadas
-    const stroke = Color(0x22ffffff);        // líneas sutiles
-    const textPrimary = Color(0xfff0f2f5);
-    const textSecondary = Color(0xff8892a4);
+    // ── Paleta principal (LIGHT) ──────────────────────────────────────────────
+    const magenta = Color(0xffd94f87);          // acento principal
+    const magentaDim = Color(0x33d94f87);       // magenta translúcido
+    const magentaGlow = Color(0x1ad94f87);      // brillo suave
+
+    // Colores del tema CLARO (los originales de la app)
+    const bgBase = Color(0xfffff6fa);           // fondo scaffold (crema rosado)
+    const bgCard = Color(0xffffffff);           // tarjetas blancas
+    const bgSurface = Color(0xfffffbfd);        // superficies
+    const bgNav = Color(0xfffffafd);            // nav bar/rail
+    const indicatorColor = Color(0xffffd7e6);   // indicador nav
+    const stroke = Color(0xffe8d0da);           // líneas sutiles rosadas
+    const textPrimary = Color(0xff49343f);      // texto principal (rosa oscuro)
+    const textSecondary = Color(0xff7a5c6b);    // texto secundario
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,
@@ -46,25 +49,25 @@ class _DepotAppState extends State<DepotApp> {
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: magenta,
-          brightness: Brightness.dark,
+          brightness: Brightness.light,
           primary: magenta,
-          onPrimary: Colors.black,
-          secondary: const Color(0xffff9ecc),
-          surface: bgBase,
+          onPrimary: Colors.white,
+          secondary: const Color(0xffb5296b),
+          surface: bgSurface,
           surfaceContainerLow: bgCard,
-          surfaceContainerLowest: bgDeep,
-          surfaceContainerHigh: bgSurface,
+          surfaceContainerLowest: bgBase,
+          surfaceContainerHigh: const Color(0xffffedf5),
           onSurface: textPrimary,
           onSurfaceVariant: textSecondary,
           outline: stroke,
-          error: const Color(0xffff5370),
+          error: const Color(0xffb00020),
         ),
         useMaterial3: true,
         scaffoldBackgroundColor: bgBase,
 
         // ── AppBar ────────────────────────────────────────────────────────────
         appBarTheme: AppBarTheme(
-          backgroundColor: bgDeep,
+          backgroundColor: bgBase,
           foregroundColor: textPrimary,
           centerTitle: false,
           elevation: 0,
@@ -75,17 +78,17 @@ class _DepotAppState extends State<DepotApp> {
             color: textPrimary,
             fontSize: 18,
             fontWeight: FontWeight.w700,
-            letterSpacing: 0.5,
+            letterSpacing: 0.3,
           ),
           shape: const Border(
-            bottom: BorderSide(color: magentaDim, width: 1),
+            bottom: BorderSide(color: stroke, width: 1),
           ),
         ),
 
         // ── NavigationBar (móvil) ─────────────────────────────────────────────
         navigationBarTheme: NavigationBarThemeData(
-          backgroundColor: bgDeep,
-          indicatorColor: magentaDim,
+          backgroundColor: bgNav,
+          indicatorColor: indicatorColor,
           height: 68,
           labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
           labelTextStyle: WidgetStateProperty.resolveWith((states) {
@@ -94,13 +97,13 @@ class _DepotAppState extends State<DepotApp> {
                 color: magenta,
                 fontWeight: FontWeight.w700,
                 fontSize: 11,
-                letterSpacing: 0.8,
+                letterSpacing: 0.5,
               );
             }
             return const TextStyle(
               color: textSecondary,
               fontSize: 11,
-              letterSpacing: 0.8,
+              letterSpacing: 0.5,
             );
           }),
           iconTheme: WidgetStateProperty.resolveWith((states) {
@@ -113,15 +116,15 @@ class _DepotAppState extends State<DepotApp> {
 
         // ── NavigationRail (escritorio) ───────────────────────────────────────
         navigationRailTheme: const NavigationRailThemeData(
-          backgroundColor: bgDeep,
-          indicatorColor: magentaDim,
+          backgroundColor: bgNav,
+          indicatorColor: indicatorColor,
           selectedIconTheme: IconThemeData(color: magenta),
           unselectedIconTheme: IconThemeData(color: textSecondary),
           selectedLabelTextStyle: TextStyle(
             color: magenta,
             fontWeight: FontWeight.w700,
             fontSize: 12,
-            letterSpacing: 0.6,
+            letterSpacing: 0.4,
           ),
           unselectedLabelTextStyle: TextStyle(
             color: textSecondary,
@@ -131,11 +134,12 @@ class _DepotAppState extends State<DepotApp> {
 
         // ── Cards ─────────────────────────────────────────────────────────────
         cardTheme: const CardThemeData(
-          elevation: 0,
+          elevation: 1,
           color: bgCard,
+          shadowColor: Color(0x1ad94f87),
           margin: EdgeInsets.zero,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(4)),
+            borderRadius: BorderRadius.all(Radius.circular(16)),
             side: BorderSide(color: stroke, width: 1),
           ),
         ),
@@ -143,29 +147,29 @@ class _DepotAppState extends State<DepotApp> {
         // ── Inputs ────────────────────────────────────────────────────────────
         inputDecorationTheme: const InputDecorationTheme(
           filled: true,
-          fillColor: bgDeep,
+          fillColor: Colors.white,
           labelStyle: TextStyle(color: textSecondary, fontSize: 13),
-          hintStyle: TextStyle(color: Color(0xff4a5568)),
+          hintStyle: TextStyle(color: Color(0xffb090a0)),
           contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.all(Radius.circular(4)),
+            borderRadius: BorderRadius.all(Radius.circular(12)),
             borderSide: BorderSide(color: stroke),
           ),
           enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.all(Radius.circular(4)),
+            borderRadius: BorderRadius.all(Radius.circular(12)),
             borderSide: BorderSide(color: stroke),
           ),
           focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.all(Radius.circular(4)),
+            borderRadius: BorderRadius.all(Radius.circular(12)),
             borderSide: BorderSide(color: magenta, width: 1.5),
           ),
           errorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.all(Radius.circular(4)),
-            borderSide: BorderSide(color: Color(0xffff5370)),
+            borderRadius: BorderRadius.all(Radius.circular(12)),
+            borderSide: BorderSide(color: Color(0xffb00020)),
           ),
           focusedErrorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.all(Radius.circular(4)),
-            borderSide: BorderSide(color: Color(0xffff5370), width: 1.5),
+            borderRadius: BorderRadius.all(Radius.circular(12)),
+            borderSide: BorderSide(color: Color(0xffb00020), width: 1.5),
           ),
         ),
 
@@ -174,25 +178,25 @@ class _DepotAppState extends State<DepotApp> {
           style: ButtonStyle(
             backgroundColor: WidgetStateProperty.resolveWith((states) {
               if (states.contains(WidgetState.disabled)) {
-                return const Color(0xff1e2030);
+                return const Color(0xffe0cdd6);
               }
               return magenta;
             }),
-            foregroundColor: WidgetStateProperty.all(Colors.black),
-            overlayColor:
-                WidgetStateProperty.all(Colors.white.withOpacity(0.12)),
+            foregroundColor: WidgetStateProperty.all(Colors.white),
+            overlayColor: WidgetStateProperty.all(
+                Colors.white.withValues(alpha: 0.15)),
             padding: WidgetStateProperty.all(
               const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
             ),
             shape: WidgetStateProperty.all(
               const RoundedRectangleBorder(
-                borderRadius: BorderRadius.all(Radius.circular(4)),
+                borderRadius: BorderRadius.all(Radius.circular(12)),
               ),
             ),
             textStyle: WidgetStateProperty.all(
               const TextStyle(
                 fontWeight: FontWeight.w700,
-                letterSpacing: 0.6,
+                letterSpacing: 0.4,
                 fontSize: 14,
               ),
             ),
@@ -202,22 +206,22 @@ class _DepotAppState extends State<DepotApp> {
         // ── Outlined buttons ──────────────────────────────────────────────────
         outlinedButtonTheme: OutlinedButtonThemeData(
           style: ButtonStyle(
-            foregroundColor: WidgetStateProperty.all(textPrimary),
+            foregroundColor: WidgetStateProperty.all(magenta),
             side: WidgetStateProperty.all(
-              const BorderSide(color: stroke, width: 1),
+              const BorderSide(color: magenta, width: 1),
             ),
             padding: WidgetStateProperty.all(
               const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
             ),
             shape: WidgetStateProperty.all(
               const RoundedRectangleBorder(
-                borderRadius: BorderRadius.all(Radius.circular(4)),
+                borderRadius: BorderRadius.all(Radius.circular(12)),
               ),
             ),
             textStyle: WidgetStateProperty.all(
               const TextStyle(
                 fontWeight: FontWeight.w600,
-                letterSpacing: 0.4,
+                letterSpacing: 0.3,
                 fontSize: 14,
               ),
             ),
@@ -229,19 +233,18 @@ class _DepotAppState extends State<DepotApp> {
           style: ButtonStyle(
             foregroundColor: WidgetStateProperty.all(magenta),
             textStyle: WidgetStateProperty.all(
-              const TextStyle(fontWeight: FontWeight.w600, letterSpacing: 0.4),
+              const TextStyle(fontWeight: FontWeight.w600, letterSpacing: 0.3),
             ),
           ),
         ),
 
         // ── Chips ─────────────────────────────────────────────────────────────
         chipTheme: const ChipThemeData(
-          side: BorderSide(color: stroke),
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.all(Radius.circular(4))),
-          backgroundColor: bgCard,
-          selectedColor: magentaGlow,
-          labelStyle: TextStyle(fontSize: 12, letterSpacing: 0.4),
+          side: BorderSide(color: Color(0xffffc4d9)),
+          shape: StadiumBorder(),
+          backgroundColor: bgSurface,
+          selectedColor: indicatorColor,
+          labelStyle: TextStyle(fontSize: 12, color: textPrimary),
         ),
 
         // ── Dividers ──────────────────────────────────────────────────────────
@@ -253,9 +256,9 @@ class _DepotAppState extends State<DepotApp> {
 
         // ── Dialogs ───────────────────────────────────────────────────────────
         dialogTheme: const DialogThemeData(
-          backgroundColor: bgSurface,
+          backgroundColor: bgCard,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(8)),
+            borderRadius: BorderRadius.all(Radius.circular(20)),
             side: BorderSide(color: stroke, width: 1),
           ),
           titleTextStyle: TextStyle(
@@ -267,10 +270,10 @@ class _DepotAppState extends State<DepotApp> {
 
         // ── SnackBar ──────────────────────────────────────────────────────────
         snackBarTheme: const SnackBarThemeData(
-          backgroundColor: bgSurface,
-          contentTextStyle: TextStyle(color: textPrimary),
+          backgroundColor: Color(0xff49343f),
+          contentTextStyle: TextStyle(color: Colors.white),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(4)),
+            borderRadius: BorderRadius.all(Radius.circular(10)),
           ),
           behavior: SnackBarBehavior.floating,
         ),
@@ -278,7 +281,7 @@ class _DepotAppState extends State<DepotApp> {
         // ── Badges ────────────────────────────────────────────────────────────
         badgeTheme: const BadgeThemeData(
           backgroundColor: magenta,
-          textColor: Colors.black,
+          textColor: Colors.white,
           textStyle: TextStyle(fontWeight: FontWeight.w700, fontSize: 10),
         ),
 
@@ -304,11 +307,11 @@ class _DepotAppState extends State<DepotApp> {
           bodyMedium: TextStyle(color: textSecondary),
           bodySmall: TextStyle(color: textSecondary, fontSize: 12),
           labelLarge: TextStyle(
-              color: textPrimary, fontWeight: FontWeight.w700, letterSpacing: 0.8),
+              color: textPrimary, fontWeight: FontWeight.w700, letterSpacing: 0.5),
           labelMedium: TextStyle(
-              color: textSecondary, letterSpacing: 1.2, fontWeight: FontWeight.w700, fontSize: 11),
+              color: textSecondary, letterSpacing: 0.8, fontWeight: FontWeight.w700, fontSize: 11),
           labelSmall: TextStyle(
-              color: textSecondary, letterSpacing: 1.4, fontWeight: FontWeight.w700, fontSize: 10),
+              color: textSecondary, letterSpacing: 1.0, fontWeight: FontWeight.w700, fontSize: 10),
         ),
 
         // ── ListTile ──────────────────────────────────────────────────────────
@@ -321,9 +324,9 @@ class _DepotAppState extends State<DepotApp> {
 
         // ── PopupMenu ─────────────────────────────────────────────────────────
         popupMenuTheme: const PopupMenuThemeData(
-          color: bgSurface,
+          color: bgCard,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(6)),
+            borderRadius: BorderRadius.all(Radius.circular(12)),
             side: BorderSide(color: stroke, width: 1),
           ),
           textStyle: TextStyle(color: textPrimary, fontSize: 14),
@@ -338,7 +341,7 @@ class _DepotAppState extends State<DepotApp> {
             }),
             shape: WidgetStateProperty.all(
               const RoundedRectangleBorder(
-                  borderRadius: BorderRadius.all(Radius.circular(4))),
+                  borderRadius: BorderRadius.all(Radius.circular(10))),
             ),
           ),
         ),
@@ -346,6 +349,15 @@ class _DepotAppState extends State<DepotApp> {
         // ── Progress indicators ───────────────────────────────────────────────
         progressIndicatorTheme:
             const ProgressIndicatorThemeData(color: magenta),
+
+        // ── FloatingActionButton ──────────────────────────────────────────────
+        floatingActionButtonTheme: const FloatingActionButtonThemeData(
+          backgroundColor: magenta,
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(16)),
+          ),
+        ),
       ),
       home: ListenableBuilder(
         listenable: store,

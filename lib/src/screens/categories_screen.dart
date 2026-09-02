@@ -3,14 +3,14 @@ import 'package:flutter/material.dart';
 import '../inventory_store.dart';
 import '../models.dart';
 
-/// Paleta reutilizada del resto de la app
+/// Paleta LIGHT (mismos colores que el resto de la app)
 class _C {
   static const magenta = Color(0xffd94f87);
-  static const bgCard = Color(0xff0e1117);
-  static const stroke = Color(0x22ffffff);
-  static const textPrimary = Color(0xfff0f2f5);
-  static const textSecondary = Color(0xff8892a4);
-  static const red = Color(0xffff5370);
+  static const bgCard = Color(0xffffffff);
+  static const stroke = Color(0xffe8d0da);
+  static const textPrimary = Color(0xff49343f);
+  static const textSecondary = Color(0xff7a5c6b);
+  static const red = Color(0xffb00020);
 }
 
 /// Catálogo de categorías: se registran aquí y el formulario de productos las

@@ -12,21 +12,21 @@ import 'product_form.dart';
 import 'scanner_screen.dart';
 import 'stock_dialog.dart';
 
-// ── Paleta de colores centralizada ────────────────────────────────────────────
+// ── Paleta de colores centralizada (LIGHT) ────────────────────────────────────
 class _Colors {
   static const magenta = Color(0xffd94f87);
   static const magentaGlow = Color(0x1ad94f87);
-  static const bgDeep = Color(0xff030507);
-  static const bgBase = Color(0xff090b0f);
-  static const bgCard = Color(0xff0e1117);
-  static const bgSurface = Color(0xff141820);
-  static const stroke = Color(0x22ffffff);
+  static const bgDeep = Color(0xfffff6fa);      // crema rosada (original)
+  static const bgBase = Color(0xfffff6fa);      // fondo base claro
+  static const bgCard = Color(0xffffffff);      // tarjetas blancas
+  static const bgSurface = Color(0xfffffbfd);   // superficies
+  static const stroke = Color(0xffe8d0da);      // borde rosado suave
   static const strokeMagenta = Color(0x33d94f87);
-  static const textPrimary = Color(0xfff0f2f5);
-  static const textSecondary = Color(0xff8892a4);
-  static const green = Color(0xff22c55e);
-  static const amber = Color(0xfffbbf24);
-  static const red = Color(0xffff5370);
+  static const textPrimary = Color(0xff49343f); // texto oscuro rosado (original)
+  static const textSecondary = Color(0xff7a5c6b);
+  static const green = Color(0xff16a34a);       // verde más oscuro (visible en claro)
+  static const amber = Color(0xffb45309);       // ámbar oscuro (visible en claro)
+  static const red = Color(0xffb00020);         // rojo oscuro (visible en claro)
 }
 
 // ── HomeScreen ────────────────────────────────────────────────────────────────
