@@ -37,7 +37,7 @@ cloudinary.config({
 
 const app = express();
 app.set('trust proxy', 1);
-const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? '').split(',').map((item) => item.trim()).filter(Boolean);
+const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? '').split(',').map((item) => item.trim().replace(/\/$/, '')).filter(Boolean);
 app.use(cors({ origin: allowedOrigins.length === 0 ? false : allowedOrigins }));
 app.use(express.json({ limit: '1mb' }));
 
