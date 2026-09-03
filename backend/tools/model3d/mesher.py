@@ -172,14 +172,15 @@ def _extrusion(view: View, dims: tuple[int, int, int], apply_radial_profile: boo
 
     p = getattr(view, 'p', 4.0)
     vol_slice = np.zeros((W, H, D), dtype=bool)
-    z_coords = np.linspace(-1.0, 1.0, D)
+    zc = (D - 1) / 2.0
+    aspect_scale = D / float(W)
 
     for y in range(H):
         row = silhouette[:, y]
         if not row.any():
             continue
 
-        # Segmentos contiguos para respetar orificios (como asas de tazas)
+        # Segmentos contiguos para respetar orificios (como asas de tazas) y piezas múltiples (frascos + aplicadores)
         padded = np.pad(row.astype(int), (1, 1), 'constant')
         diffs = np.diff(padded)
         starts = np.where(diffs == 1)[0]
@@ -188,15 +189,20 @@ def _extrusion(view: View, dims: tuple[int, int, int], apply_radial_profile: boo
         for st, en in zip(starts, ends):
             xc = (st + en - 1) / 2.0
             rx = max(0.5, (en - st) / 2.0)
+            # El radio de profundidad (Z) es proporcional al grosor del segmento (X)
+            # Evita que varillas finas (aplicadores) o asas se estiren como muros gruesos
+            rz = max(1.0, rx * aspect_scale)
+            segment_p = 2.0 if (rx <= 4.0 or getattr(view, 'is_round', False)) else p
+
             for x in range(st, en):
                 nx = abs(x - xc) / rx
                 if nx < 1.0:
-                    max_z = (1.0 - nx**p)**(1.0 / p)
-                    for zi, z in enumerate(z_coords):
-                        if abs(z) <= max_z:
-                            vol_slice[x, y, zi] = True
+                    max_dz = (1.0 - nx**segment_p)**(1.0 / segment_p) * rz
+                    for z in range(D):
+                        if abs(z - zc) <= max_dz:
+                            vol_slice[x, y, z] = True
                 else:
-                    vol_slice[x, y, D // 2] = True
+                    vol_slice[x, y, int(zc)] = True
 
     order = [horizontal_axis, vertical_axis, depth_axis]
     return np.transpose(vol_slice, np.argsort(order))

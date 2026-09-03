@@ -14,7 +14,7 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
-from scipy.ndimage import binary_closing, binary_fill_holes, binary_opening, gaussian_filter
+from scipy.ndimage import binary_closing, binary_fill_holes, binary_opening, gaussian_filter, label
 from skimage import exposure
 from skimage.color import rgb2gray
 from skimage.filters import sobel
@@ -71,19 +71,19 @@ def _profile_shape(mask: np.ndarray) -> tuple[float, bool, bool]:
     mid_std = float(np.std(mid_w) / (np.mean(mid_w) + 1e-5))
 
     # Criterios geométricos:
-    # 1. Redondo (vasos, tazas, botellas, esferas): variación de ancho o esquinas redondeadas
-    is_round = (mid_std > 0.04) or (solidity < 0.86)
-    # 2. Cubo / caja cuadrada: relación de aspecto casi 1:1, alta solidez y paredes rectas
-    is_cube = (aspect >= 0.80) and (solidity >= 0.88) and (mid_std <= 0.03)
-    # 3. Lámina plana (teléfonos, tablets): alargado, muy rectangular y paredes rectas
-    is_flat_slab = (aspect < 0.70) and (solidity >= 0.90) and (mid_std <= 0.03)
+    # 1. Lámina plana (teléfonos, tablets): silueta alargada con laterales rectos y paralelos
+    is_flat_slab = (aspect < 0.72) and (mid_std < 0.035)
+    # 2. Cubo / caja cuadrada: relación de aspecto cercana a 1:1, laterales rectos y solidez alta
+    is_cube = (aspect >= 0.80) and (mid_std < 0.05) and (solidity >= 0.80)
+    # 3. Redondo / cilíndrico (vasos, tazas, botellas, esferas): todo objeto con variación de ancho
+    is_round = not is_flat_slab and not is_cube
 
-    if is_round:
-        return 2.0, True, False
+    if is_flat_slab:
+        return 4.5, False, False
     elif is_cube:
         return 4.0, False, True
-    elif is_flat_slab:
-        return 4.5, False, False
+    elif is_round:
+        return 2.0, True, False
     else:
         return 3.5, False, False
 
@@ -166,46 +166,61 @@ def estimate_extents(views: list[View]) -> tuple[float, float, float]:
 
 def _segment(pixels: np.ndarray) -> np.ndarray | None:
     height, width, _ = pixels.shape
-    band = max(2, round(min(height, width) * BORDER_FRACTION))
+    band = max(4, round(min(height, width) * BORDER_FRACTION))
+    # Muestrear el fondo de los bordes superior, izquierdo y derecho (evitando el borde inferior
+    # donde suelen acumularse reflejos especulares de mesas lacadas o de cristal)
     border = np.concatenate([
-        pixels[:band].reshape(-1, 3), pixels[-band:].reshape(-1, 3),
-        pixels[:, :band].reshape(-1, 3), pixels[:, -band:].reshape(-1, 3),
+        pixels[:band, :].reshape(-1, 3),
+        pixels[:, :band].reshape(-1, 3),
+        pixels[:, -band:].reshape(-1, 3),
     ])
 
     # 1. Modelo estadístico de fondo con matriz de covarianza (distancia de Mahalanobis).
-    # Robusto frente a sombras, viñeteado y mesas oscuras en condiciones de baja iluminación.
+    # Elimina reflejos tenues de mesa (d2 ~ 5) y soporta baja iluminación.
     bg_mean = np.median(border, axis=0)
-    bg_cov = np.cov(border.T) + np.eye(3) * 4.0
+    bg_cov = np.cov(border.T) + np.eye(3) * 5.0
     inv_cov = np.linalg.inv(bg_cov)
     diff = pixels.astype(np.float64) - bg_mean
     d2 = np.einsum('ijk,kl,ijl->ij', diff, inv_cov, diff)
 
-    # 2. Detección de bordes espaciales con realce CLAHE para baja iluminación
-    # Denoise del grano del sensor para evitar falsas barreras de ruido en fotos oscuras
+    # 2. Detección de bordes con CLAHE para fotos oscuras o grano de sensor
     gray = rgb2gray(pixels / 255.0)
     smooth_gray = gaussian_filter(gray, sigma=1.0)
     enhanced_gray = exposure.equalize_adapthist(smooth_gray, clip_limit=0.03)
     edges = sobel(enhanced_gray)
     edge_barrier = edges > np.percentile(edges, 85)
 
-    # 3. Umbral adaptativo para candidatos a fondo
-    otsu_val = _otsu(d2)
-    dist_thresh = max(otsu_val, 12.0)
-    free = (d2 < dist_thresh) & (~edge_barrier)
+    # 3. Identificación directa de primer plano: los píxeles con discrepancia de fondo o bordes
+    fg = (d2 >= 16.0) | edge_barrier
+    fg = binary_closing(fg, structure=np.ones((7, 7)))
 
-    # 4. Cierre morfológico de la barrera para sellar pequeñas fugas en el contorno
-    barrier = binary_closing(~free, structure=np.ones((5, 5)))
-    free_tight = ~barrier
+    # 4. Filtrado multi-componente inteligente:
+    # Conserva tanto la pieza principal como accesorios o wands/aplicadores desconectados (>= 12% del mayor)
+    labels, num = label(fg)
+    counts = np.bincount(labels.ravel())
+    if num > 0:
+        max_c = counts[1:].max()
+        keep = [i for i in range(1, num + 1) if counts[i] >= 0.12 * max_c]
+        fg = np.isin(labels, keep)
 
-    # 5. Inundación desde los bordes para determinar el fondo exterior conectado
-    bg_mask = _reachable_from_border(free_tight)
-    fg_mask = ~bg_mask
+    # 5. Preservación topológica de orificios reales (asas de tazas, anillas) vs pantallas sólidas:
+    # Si un hueco interior tiene tamaño moderado (0.8% a 16% del producto) y coincide nítidamente con el fondo (d2 < 12),
+    # se mantiene abierto (como el asa de una taza). Brillos especulares o pantallas se sellan como cuerpo sólido.
+    fg_filled = binary_fill_holes(fg)
+    holes = fg_filled & (~fg)
+    hole_labels, num_holes = label(holes)
+    hole_counts = np.bincount(hole_labels.ravel())
+    total_area = max(1, fg_filled.sum())
 
-    # 6. Limpieza morfológica y preservación de huecos reales (como asas de tazas)
-    fg_closed = binary_closing(fg_mask, structure=np.ones((5, 5)))
-    fg_blob = _largest_blob(fg_closed)
-    mask = binary_opening(fg_blob, structure=np.ones((3, 3)))
-    mask = binary_fill_holes(mask)
+    keep_open = np.zeros_like(holes)
+    for h_id in range(1, num_holes + 1):
+        ratio = hole_counts[h_id] / float(total_area)
+        hole_d2 = d2[hole_labels == h_id]
+        if 0.008 <= ratio <= 0.16 and np.median(hole_d2) < 12.0:
+            keep_open |= (hole_labels == h_id)
+
+    mask = fg_filled & (~keep_open)
+    mask = binary_opening(mask, structure=np.ones((3, 3)))
 
     return mask if mask.mean() >= MIN_COVERAGE else None
 
