@@ -266,35 +266,73 @@ app.post('/api/products/:id/model', async (request, response) => {
     return;
   }
 
-  const { glb, report } = await buildModel(images.map((row) => ({
+  const { glb, report, render } = await buildModel(images.map((row) => ({
     viewIndex: Number(row.viewIndex),
     imageUrl: String(row.imageUrl),
   })));
 
-  const uploaded = await new Promise<{ secure_url: string; public_id: string }>(
-    (resolve, reject) => {
+  const uploadPromises: Promise<{ secure_url: string; public_id: string }>[] = [];
+  
+  // Upload GLB
+  uploadPromises.push(new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder: 'my-love-depot/models',
+        public_id: `${productId}/model.glb`,
+        resource_type: 'raw',
+        overwrite: true,
+      },
+      (error, result) => {
+        if (error || !result) reject(error ?? new Error('Cloudinary no respondió al subir GLB'));
+        else resolve(result);
+      },
+    );
+    stream.end(glb);
+  }));
+
+  // Upload Render if it exists
+  if (render) {
+    uploadPromises.push(new Promise((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
         {
-          folder: 'my-love-depot/models',
-          public_id: `${productId}/model.glb`,
-          resource_type: 'raw',
+          folder: 'my-love-depot/renders',
+          public_id: `${productId}/render`,
+          resource_type: 'image',
+          format: 'png',
           overwrite: true,
         },
         (error, result) => {
-          if (error || !result) reject(error ?? new Error('Cloudinary no respondió'));
+          if (error || !result) reject(error ?? new Error('Cloudinary no respondió al subir el render'));
           else resolve(result);
         },
       );
-      stream.end(glb);
-    },
-  );
+      stream.end(render);
+    }));
+  }
 
-  await pool.execute(
-    `UPDATE products SET model_url = ?, model_public_id = ?, model_built_at = NOW()
-     WHERE id = ?`,
-    [uploaded.secure_url, uploaded.public_id, productId],
-  );
-  response.status(201).json({ modelUrl: uploaded.secure_url, ...report });
+  const results = await Promise.all(uploadPromises);
+  const uploadedGlb = results[0];
+  const uploadedRender = render && results.length > 1 ? results[1] : null;
+
+  if (uploadedRender) {
+    await pool.execute(
+      `UPDATE products SET model_url = ?, model_public_id = ?, render_url = ?, render_public_id = ?, model_built_at = NOW()
+       WHERE id = ?`,
+      [uploadedGlb.secure_url, uploadedGlb.public_id, uploadedRender.secure_url, uploadedRender.public_id, productId],
+    );
+  } else {
+    await pool.execute(
+      `UPDATE products SET model_url = ?, model_public_id = ?, model_built_at = NOW()
+       WHERE id = ?`,
+      [uploadedGlb.secure_url, uploadedGlb.public_id, productId],
+    );
+  }
+
+  response.status(201).json({ 
+    modelUrl: uploadedGlb.secure_url, 
+    renderUrl: uploadedRender?.secure_url ?? null,
+    ...report 
+  });
 });
 
 const movementSchema = z.object({

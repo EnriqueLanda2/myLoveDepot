@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS products (
   image_public_id VARCHAR(255) NULL,
   model_url TEXT NULL,
   model_public_id VARCHAR(255) NULL,
+  render_url TEXT NULL,
+  render_public_id VARCHAR(255) NULL,
   model_built_at TIMESTAMP NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

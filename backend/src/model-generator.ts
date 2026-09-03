@@ -48,7 +48,15 @@ export async function buildModel(views: ModelView[]) {
     if (glb.byteLength > MAX_MODEL_BYTES) {
       throw new ModelBuildError('El modelo generado es demasiado grande.');
     }
-    return { glb, report };
+    
+    let render: Buffer | undefined;
+    try {
+      render = await readFile(path.join(workspace, 'render.png'));
+    } catch {
+      // Ignore if render failed or is missing
+    }
+
+    return { glb, report, render };
   } finally {
     building = false;
     await rm(workspace, { recursive: true, force: true });

@@ -6,8 +6,8 @@ ortogonales el contorno resultante es exacto y no se inventa nada: se obtiene el
 volumen más pequeño compatible con las fotos. Lo que este método no puede
 recuperar son las concavidades, porque ninguna silueta las delata.
 
-La superficie sale de los vóxeles como una escalera, así que se relaja con un
-suavizado de Taubin antes de escribirla.
+La superficie se extrae utilizando el algoritmo de Marching Cubes sobre un
+campo de distancia suavizado (Gaussian Filter) para erradicar el escalonado.
 """
 
 from __future__ import annotations
@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 from PIL import Image
+from scipy.ndimage import gaussian_filter
+from skimage.measure import marching_cubes
 
 from silhouette import View
 
@@ -48,11 +50,6 @@ FACE_VIEWS: dict[tuple[int, int], int | None] = {
 MIN_CELLS = 6
 SILHOUETTE_LEVEL = 96
 
-# Suavizado de Taubin: una pasada que encoge y otra que expande, de modo que la
-# escalera de vóxeles se redondea sin que el modelo adelgace.
-SHRINK = 0.55
-INFLATE = -0.58
-
 
 @dataclass
 class Geometry:
@@ -79,123 +76,71 @@ def carve(views: list[View], extents: tuple[float, float, float],
 def surface(occupancy: np.ndarray, dims: tuple[int, int, int],
             extents: tuple[float, float, float], atlas,
             smoothing: int = 2) -> Geometry:
-    """Convierte los vóxeles ocupados en una malla texturizada y suavizada."""
-    half = [value * 0.5 for value in extents]
-    corners: list[list[float]] = []
-    slots: list = []
-    quads: list[list[int]] = []
-    for axis in range(3):
-        for sign in (1, -1):
-            _emit(corners, slots, quads, occupancy, dims, half, atlas, axis, sign)
-    if not quads:
+    """Convierte los vóxeles ocupados en una malla continua y texturizada usando Marching Cubes."""
+    # Convertir ocupación booleana a campo continuo [0, 1] y suavizar
+    # El radio de desenfoque gaussiano elimina la naturaleza de "bloques"
+    sigma = max(0.5, smoothing * 0.4)
+    field_data = gaussian_filter(occupancy.astype(np.float32), sigma=sigma)
+
+    try:
+        # Extraer superficie isosuperficie suave
+        verts, faces, normals, values = marching_cubes(field_data, level=0.5)
+    except ValueError:
+        # Si el campo es uniforme (ej. falla total), devolver malla vacía
         return Geometry()
 
-    raw = np.asarray(corners, dtype=np.float64)
-    joints, seams = np.unique(raw.round(6), axis=0, return_inverse=True)
-    seams = seams.reshape(-1)
-    faces = seams[np.asarray(quads, dtype=np.int64)]
+    # Mapear de [0, dims-1] a [-half_extents, +half_extents]
+    # Marching cubes da coordenadas entre 0 y dims-1
+    half = [extents[0]*0.5, extents[1]*0.5, extents[2]*0.5]
+    scaled_verts = np.zeros_like(verts)
+    for i in range(3):
+        # Escalar mapeando 0 a -half y dims a +half
+        scaled_verts[:, i] = -half[i] + (verts[:, i] / dims[i]) * extents[i]
 
-    joints = _relax(joints, faces, smoothing)
-    joint_normals = _normals(joints, faces)
-    return _assemble(joints, joint_normals, seams, slots, quads, half)
+    # Re-triangular para permitir costuras UV netas
+    final_positions = []
+    final_normals = []
+    final_uvs = []
+    final_indices = []
 
+    vertex_count = 0
 
-def _emit(corners: list, slots: list, quads: list, occupancy: np.ndarray,
-          dims: tuple[int, int, int], half: list[float], atlas,
-          axis: int, sign: int) -> None:
-    exposed = occupancy & ~_neighbour(occupancy, axis, sign)
-    if not exposed.any():
-        return
-
-    first, second = (axis + 1) % 3, (axis + 2) % 3
-    slot = atlas.slot_for(FACE_VIEWS[(axis, sign)])
-    cells = np.argwhere(exposed)
-    for cell in cells:
-        layer = int(cell[axis])
-        step_a, step_b = int(cell[first]), int(cell[second])
-        depth = _coordinate(axis, layer + (1 if sign > 0 else 0), dims, half)
-        square = [(step_a, step_b), (step_a + 1, step_b),
-                  (step_a + 1, step_b + 1), (step_a, step_b + 1)]
-        if sign < 0:
-            square.reverse()
-        base = len(corners)
-        for offset_a, offset_b in square:
-            point = [0.0, 0.0, 0.0]
-            point[axis] = depth
-            point[first] = _coordinate(first, offset_a, dims, half)
-            point[second] = _coordinate(second, offset_b, dims, half)
-            corners.append(point)
-            slots.append(slot)
-        quads.append([base, base + 1, base + 2, base + 3])
-
-
-def _assemble(joints: np.ndarray, joint_normals: np.ndarray, seams: np.ndarray,
-              slots: list, quads: list, half: list[float]) -> Geometry:
-    """Suelda los vértices que comparten posición y fotografía."""
-    lookup: dict[tuple[int, int], int] = {}
-    positions: list[np.ndarray] = []
-    normals: list[np.ndarray] = []
-    uvs: list[tuple[float, float]] = []
-    indices: list[int] = []
-
-    for quad in quads:
-        merged = []
-        for corner in quad:
-            joint = int(seams[corner])
-            slot = slots[corner]
-            key = (joint, id(slot))
-            index = lookup.get(key)
-            if index is None:
-                index = len(positions)
-                lookup[key] = index
-                point = joints[joint]
-                positions.append(point)
-                normals.append(joint_normals[joint])
-                uvs.append(slot.coordinates(point, half))
-            merged.append(index)
-        indices.extend([merged[0], merged[1], merged[2],
-                        merged[0], merged[2], merged[3]])
+    for face in faces:
+        v0, v1, v2 = face
+        p0 = scaled_verts[v0]
+        p1 = scaled_verts[v1]
+        p2 = scaled_verts[v2]
+        
+        n0 = normals[v0]
+        n1 = normals[v1]
+        n2 = normals[v2]
+        tri_normal = n0 + n1 + n2
+        norm = np.linalg.norm(tri_normal)
+        if norm > 0:
+            tri_normal /= norm
+        
+        axis = int(np.argmax(np.abs(tri_normal)))
+        sign = 1 if tri_normal[axis] >= 0 else -1
+        
+        slot = atlas.slot_for(FACE_VIEWS.get((axis, sign)))
+        
+        uv0 = slot.coordinates(p0, half)
+        uv1 = slot.coordinates(p1, half)
+        uv2 = slot.coordinates(p2, half)
+        
+        final_positions.extend([p0, p1, p2])
+        final_normals.extend([n0, n1, n2])
+        final_uvs.extend([uv0, uv1, uv2])
+        
+        final_indices.extend([vertex_count, vertex_count+1, vertex_count+2])
+        vertex_count += 3
 
     return Geometry(
-        positions=np.asarray(positions, dtype=np.float32),
-        normals=np.asarray(normals, dtype=np.float32),
-        uvs=np.asarray(uvs, dtype=np.float32),
-        indices=np.asarray(indices, dtype=np.uint32),
+        positions=np.asarray(final_positions, dtype=np.float32),
+        normals=np.asarray(final_normals, dtype=np.float32),
+        uvs=np.asarray(final_uvs, dtype=np.float32),
+        indices=np.asarray(final_indices, dtype=np.uint32),
     )
-
-
-def _relax(points: np.ndarray, faces: np.ndarray, iterations: int) -> np.ndarray:
-    if iterations <= 0:
-        return points
-    owners, others, counts = _adjacency(len(points), faces)
-    for _ in range(iterations):
-        for factor in (SHRINK, INFLATE):
-            summed = np.zeros_like(points)
-            np.add.at(summed, owners, points[others])
-            points = points + factor * (summed / counts[:, None] - points)
-    return points
-
-
-def _adjacency(count: int, faces: np.ndarray):
-    edges = np.concatenate([faces[:, [step, (step + 1) % 4]] for step in range(4)])
-    pairs = np.unique(np.concatenate([edges, edges[:, ::-1]]), axis=0)
-    degrees = np.bincount(pairs[:, 0], minlength=count).astype(np.float64)
-    degrees[degrees == 0] = 1.0
-    return pairs[:, 0], pairs[:, 1], degrees
-
-
-def _normals(points: np.ndarray, faces: np.ndarray) -> np.ndarray:
-    # Newell sobre cada quad: funciona aunque el suavizado lo haya dejado alabeado.
-    accumulated = np.zeros_like(points)
-    facets = np.cross(
-        points[faces[:, 2]] - points[faces[:, 0]],
-        points[faces[:, 3]] - points[faces[:, 1]],
-    )
-    for corner in range(4):
-        np.add.at(accumulated, faces[:, corner], facets)
-    lengths = np.linalg.norm(accumulated, axis=1, keepdims=True)
-    lengths[lengths == 0] = 1.0
-    return accumulated / lengths
 
 
 def _extrusion(view: View, dims: tuple[int, int, int]) -> np.ndarray:
@@ -217,16 +162,3 @@ def _resample(mask: np.ndarray, columns: int, rows: int) -> np.ndarray:
     """Reescala la máscara y la reindexa como [horizontal, vertical]."""
     source = Image.fromarray(mask.T.astype(np.uint8) * 255, mode='L')
     return np.asarray(source.resize((rows, columns), Image.BILINEAR)) >= SILHOUETTE_LEVEL
-
-
-def _neighbour(occupancy: np.ndarray, axis: int, sign: int) -> np.ndarray:
-    shifted = np.roll(occupancy, -sign, axis=axis)
-    edge: list = [slice(None)] * 3
-    edge[axis] = -1 if sign > 0 else 0
-    shifted[tuple(edge)] = False
-    return shifted
-
-
-def _coordinate(axis: int, index: int, dims: tuple[int, int, int],
-                half: list[float]) -> float:
-    return -half[axis] + 2 * half[axis] * index / dims[axis]

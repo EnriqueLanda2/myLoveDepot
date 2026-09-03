@@ -55,9 +55,22 @@ def build(source: Path, destination: Path, resolution: int,
     atlas = Atlas(views)
     geometry = surface(occupancy, dims, extents, atlas, smoothing)
 
+    import subprocess
+
     texture = io.BytesIO()
     atlas.image.save(texture, format='JPEG', quality=JPEG_QUALITY, optimize=True)
     size = write_glb(destination, geometry, texture.getvalue(), 'image/jpeg')
+
+    render_path = destination.with_name('render.png')
+    
+    try:
+        subprocess.run([
+            'blender', '-b', '-P', str(Path(__file__).parent / 'render_studio.py'),
+            '--', '--input', str(destination), '--output', str(render_path)
+        ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        render_size = render_path.stat().st_size if render_path.exists() else 0
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        render_size = 0
 
     return {
         'views': [view.index for view in views],
@@ -66,6 +79,7 @@ def build(source: Path, destination: Path, resolution: int,
         'extents': [round(value, 4) for value in extents],
         'triangles': len(geometry.indices) // 3,
         'bytes': size,
+        'render_bytes': render_size,
     }
 
 
