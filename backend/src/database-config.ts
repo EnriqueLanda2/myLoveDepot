@@ -4,10 +4,13 @@ export function databaseSsl(databaseUrl: string) {
   }
 
   const encodedCa = process.env.DATABASE_CA_CERT_BASE64;
+  
   if (!encodedCa) {
-    throw new Error(
-      'Falta DATABASE_CA_CERT_BASE64 para verificar el certificado TLS de MySQL',
-    );
+    // Si no hay CA personalizado (ej. TiDB Cloud usa certificados públicos), 
+    // confiamos en los certificados raíz del sistema operativo.
+    return {
+      rejectUnauthorized: true,
+    };
   }
 
   return {
