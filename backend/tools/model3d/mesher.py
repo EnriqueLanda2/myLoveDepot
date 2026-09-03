@@ -64,8 +64,9 @@ def carve(views: list[View], extents: tuple[float, float, float],
     """Interseca las siluetas extruidas sobre una rejilla de vóxeles."""
     dims = tuple(max(MIN_CELLS, round(resolution * value)) for value in extents)
     occupancy = np.ones(dims, dtype=bool)
+    single_view = (len(views) == 1)
     for view in views:
-        occupancy &= _extrusion(view, dims)
+        occupancy &= _extrusion(view, dims, apply_radial_profile=single_view)
     if not occupancy.any():
         # Siluetas incompatibles entre sí (encuadres muy distintos): es
         # preferible una caja con las proporciones medidas que nada.
@@ -84,7 +85,12 @@ def surface(occupancy: np.ndarray, dims: tuple[int, int, int],
     pad_occ = np.pad(occupancy, 1, mode='constant', constant_values=False)
 
     sigma_val = max(0.5, smoothing * 0.4)
-    if views is not None and len(views) == 1:
+    is_any_round = any(getattr(v, 'is_round', False) for v in views) if views else False
+
+    if is_any_round:
+        # Suavizado isotrópico 3D completo para objetos redondeados (vasos, tazas, botellas)
+        field_data = gaussian_filter(pad_occ.astype(np.float32), sigma=sigma_val)
+    elif views is not None and len(views) == 1:
         view = views[0]
         wide_axis, tall_axis = MEASURED_AXES.get(view.index, (0, 1))
         depth_axis = next(axis for axis in range(3) if axis not in (wide_axis, tall_axis))
@@ -113,25 +119,16 @@ def surface(occupancy: np.ndarray, dims: tuple[int, int, int],
     final_normals = []
     final_uvs = []
     final_indices = []
-
     vertex_count = 0
 
     for face in faces:
-        v0, v1, v2 = face
-        p0 = scaled_verts[v0]
-        p1 = scaled_verts[v1]
-        p2 = scaled_verts[v2]
+        p0, p1, p2 = scaled_verts[face[0]], scaled_verts[face[1]], scaled_verts[face[2]]
+        n0, n1, n2 = normals[face[0]], normals[face[1]], normals[face[2]]
         
-        n0 = normals[v0]
-        n1 = normals[v1]
-        n2 = normals[v2]
-        tri_normal = n0 + n1 + n2
-        norm = np.linalg.norm(tri_normal)
-        if norm > 0:
-            tri_normal /= norm
-        
-        axis = int(np.argmax(np.abs(tri_normal)))
-        sign = 1 if tri_normal[axis] >= 0 else -1
+        # Orientación dominante de la cara
+        face_normal = (n0 + n1 + n2) / 3.0
+        axis = int(np.argmax(np.abs(face_normal)))
+        sign = 1 if face_normal[axis] >= 0 else -1
         
         slot = atlas.slot_for(FACE_VIEWS.get((axis, sign)))
         
@@ -154,19 +151,55 @@ def surface(occupancy: np.ndarray, dims: tuple[int, int, int],
     )
 
 
-def _extrusion(view: View, dims: tuple[int, int, int]) -> np.ndarray:
+def _extrusion(view: View, dims: tuple[int, int, int], apply_radial_profile: bool = False) -> np.ndarray:
     projection = PROJECTIONS[view.index]
     horizontal_axis, horizontal_sign = projection.horizontal
     vertical_axis, vertical_sign = projection.vertical
+    depth_axis = next(axis for axis in range(3) if axis not in (horizontal_axis, vertical_axis))
+
     silhouette = _resample(view.mask, dims[horizontal_axis], dims[vertical_axis])
     if horizontal_sign < 0:
         silhouette = silhouette[::-1, :]
     if vertical_sign < 0:
         silhouette = silhouette[:, ::-1]
 
-    order = [horizontal_axis, vertical_axis]
-    order.append(next(axis for axis in range(3) if axis not in order))
-    return np.transpose(silhouette[:, :, None], np.argsort(order))
+    W, H = silhouette.shape
+    D = dims[depth_axis]
+
+    if not apply_radial_profile:
+        order = [horizontal_axis, vertical_axis, depth_axis]
+        return np.transpose(silhouette[:, :, None] * np.ones((1, 1, D), dtype=bool), np.argsort(order))
+
+    p = getattr(view, 'p', 4.0)
+    vol_slice = np.zeros((W, H, D), dtype=bool)
+    z_coords = np.linspace(-1.0, 1.0, D)
+
+    for y in range(H):
+        row = silhouette[:, y]
+        if not row.any():
+            continue
+
+        # Segmentos contiguos para respetar orificios (como asas de tazas)
+        padded = np.pad(row.astype(int), (1, 1), 'constant')
+        diffs = np.diff(padded)
+        starts = np.where(diffs == 1)[0]
+        ends = np.where(diffs == -1)[0]
+
+        for st, en in zip(starts, ends):
+            xc = (st + en - 1) / 2.0
+            rx = max(0.5, (en - st) / 2.0)
+            for x in range(st, en):
+                nx = abs(x - xc) / rx
+                if nx < 1.0:
+                    max_z = (1.0 - nx**p)**(1.0 / p)
+                    for zi, z in enumerate(z_coords):
+                        if abs(z) <= max_z:
+                            vol_slice[x, y, zi] = True
+                else:
+                    vol_slice[x, y, D // 2] = True
+
+    order = [horizontal_axis, vertical_axis, depth_axis]
+    return np.transpose(vol_slice, np.argsort(order))
 
 
 def _resample(mask: np.ndarray, columns: int, rows: int) -> np.ndarray:

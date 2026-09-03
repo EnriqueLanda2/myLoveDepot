@@ -14,7 +14,8 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
-from scipy.ndimage import binary_closing, binary_fill_holes
+from scipy.ndimage import binary_closing, binary_fill_holes, binary_opening, gaussian_filter
+from skimage import exposure
 from skimage.color import rgb2gray
 from skimage.filters import sobel
 
@@ -37,10 +38,54 @@ class View:
     index: int
     mask: np.ndarray
     crop: Image.Image
+    p: float = 4.0
+    is_round: bool = False
+    is_cube: bool = False
 
     @property
     def aspect(self) -> float:
         return self.mask.shape[1] / self.mask.shape[0]
+
+
+def _profile_shape(mask: np.ndarray) -> tuple[float, bool, bool]:
+    """Analiza la silueta para clasificar si es redondo (vaso/taza), cubo o plano."""
+    y_idx, x_idx = np.where(mask)
+    if len(y_idx) == 0:
+        return 4.0, False, False
+    h_min, h_max = int(y_idx.min()), int(y_idx.max())
+    h = max(1, h_max - h_min + 1)
+    w = max(1, int(x_idx.max() - x_idx.min() + 1))
+    aspect = w / float(h)
+    solidity = mask.sum() / float(w * h)
+
+    # Analiza la variación de ancho en el 60% central
+    mid_s = int(h_min + 0.2 * h)
+    mid_e = int(h_min + 0.8 * h)
+    mid_w = []
+    for y in range(mid_s, mid_e):
+        row = mask[y, :]
+        if row.any():
+            xs = np.where(row)[0]
+            mid_w.append(xs.max() - xs.min() + 1)
+    mid_w = np.array(mid_w, dtype=float) if mid_w else np.array([w], dtype=float)
+    mid_std = float(np.std(mid_w) / (np.mean(mid_w) + 1e-5))
+
+    # Criterios geométricos:
+    # 1. Redondo (vasos, tazas, botellas, esferas): variación de ancho o esquinas redondeadas
+    is_round = (mid_std > 0.04) or (solidity < 0.86)
+    # 2. Cubo / caja cuadrada: relación de aspecto casi 1:1, alta solidez y paredes rectas
+    is_cube = (aspect >= 0.80) and (solidity >= 0.88) and (mid_std <= 0.03)
+    # 3. Lámina plana (teléfonos, tablets): alargado, muy rectangular y paredes rectas
+    is_flat_slab = (aspect < 0.70) and (solidity >= 0.90) and (mid_std <= 0.03)
+
+    if is_round:
+        return 2.0, True, False
+    elif is_cube:
+        return 4.0, False, True
+    elif is_flat_slab:
+        return 4.5, False, False
+    else:
+        return 3.5, False, False
 
 
 def load_view(index: int, path: Path) -> View | None:
@@ -63,21 +108,21 @@ def load_view(index: int, path: Path) -> View | None:
         round(right / mask.shape[1] * image.width),
         round(bottom / mask.shape[0] * image.height),
     ))
-    return View(index=index, mask=mask[top:bottom, left:right], crop=crop)
+    cropped_mask = mask[top:bottom, left:right]
+    p, is_round, is_cube = _profile_shape(cropped_mask)
+    return View(
+        index=index,
+        mask=cropped_mask,
+        crop=crop,
+        p=p,
+        is_round=is_round,
+        is_cube=is_cube,
+    )
 
 
 def estimate_extents(views: list[View]) -> tuple[float, float, float]:
-    """Resuelve las proporciones X:Y:Z a partir de las razones de aspecto.
-
-    Cada vista aporta una ecuación del tipo `log(ancho) - log(alto) = log(aspecto)`
-    sobre dos de los tres ejes. Con dos o más vistas el sistema queda determinado;
-    con menos, la regularización lo empuja hacia un cubo.
-    """
+    """Resuelve las proporciones X:Y:Z a partir de las razones de aspecto y perfil geométrico."""
     if len(views) == 1:
-        # Una sola silueta no aporta profundidad. En vez de dejar que la
-        # regularización fabrique un bloque casi cúbico, se usa una profundidad
-        # conservadora proporcional al lado menor. Es una aproximación honesta
-        # y estable para el avatar giratorio; vistas extra sustituyen esta regla.
         view = views[0]
         wide_axis, tall_axis = MEASURED_AXES[view.index]
         extents = np.ones(3, dtype=np.float64)
@@ -85,7 +130,16 @@ def estimate_extents(views: list[View]) -> tuple[float, float, float]:
         extents[tall_axis] = 1.0
         hidden_axis = next(axis for axis in range(3)
                            if axis not in (wide_axis, tall_axis))
-        extents[hidden_axis] = min(extents[wide_axis], extents[tall_axis]) * 0.22
+        
+        # Objetos redondos (vasos, tazas, botellas) o cubos tienen profundidad = ancho
+        if view.is_round or view.is_cube or view.aspect >= 0.82:
+            depth_factor = 1.0
+        elif view.p >= 4.2 and view.aspect < 0.70:
+            depth_factor = 0.22
+        else:
+            depth_factor = float(np.clip(0.22 + 0.78 * ((view.aspect - 0.45) / 0.35), 0.22, 1.0))
+
+        extents[hidden_axis] = min(extents[wide_axis], extents[tall_axis]) * depth_factor
         return tuple(float(value) for value in extents / extents.max())
 
     equations: list[list[float]] = []
@@ -117,39 +171,40 @@ def _segment(pixels: np.ndarray) -> np.ndarray | None:
         pixels[:band].reshape(-1, 3), pixels[-band:].reshape(-1, 3),
         pixels[:, :band].reshape(-1, 3), pixels[:, -band:].reshape(-1, 3),
     ])
-    background = np.median(border, axis=0)
-    distance = np.linalg.norm(pixels - background, axis=2)
 
-    # 1. Detección de bordes espaciales (gradiente Sobel).
-    # Previene que la inundación de fondo traspase el marco o chasis del
-    # producto cuando la pantalla u objetos internos tienen color similar al fondo.
+    # 1. Modelo estadístico de fondo con matriz de covarianza (distancia de Mahalanobis).
+    # Robusto frente a sombras, viñeteado y mesas oscuras en condiciones de baja iluminación.
+    bg_mean = np.median(border, axis=0)
+    bg_cov = np.cov(border.T) + np.eye(3) * 4.0
+    inv_cov = np.linalg.inv(bg_cov)
+    diff = pixels.astype(np.float64) - bg_mean
+    d2 = np.einsum('ijk,kl,ijl->ij', diff, inv_cov, diff)
+
+    # 2. Detección de bordes espaciales con realce CLAHE para baja iluminación
+    # Denoise del grano del sensor para evitar falsas barreras de ruido en fotos oscuras
     gray = rgb2gray(pixels / 255.0)
-    edges = sobel(gray)
-    edge_barrier = edges > np.percentile(edges, 80)
+    smooth_gray = gaussian_filter(gray, sigma=1.0)
+    enhanced_gray = exposure.equalize_adapthist(smooth_gray, clip_limit=0.03)
+    edges = sobel(enhanced_gray)
+    edge_barrier = edges > np.percentile(edges, 85)
 
-    # 2. Umbral de similitud con el fondo
-    otsu_val = _otsu(distance)
-    dist_thresh = max(otsu_val, MIN_DISTANCE)
-    free = (distance < dist_thresh) & (~edge_barrier)
+    # 3. Umbral adaptativo para candidatos a fondo
+    otsu_val = _otsu(d2)
+    dist_thresh = max(otsu_val, 12.0)
+    free = (d2 < dist_thresh) & (~edge_barrier)
 
-    # 3. Cierre morfológico de la barrera para sellar pequeñas fugas en el contorno
+    # 4. Cierre morfológico de la barrera para sellar pequeñas fugas en el contorno
     barrier = binary_closing(~free, structure=np.ones((5, 5)))
     free_tight = ~barrier
 
-    # 4. Inundación desde los bordes para determinar el fondo conectado exterior
+    # 5. Inundación desde los bordes para determinar el fondo exterior conectado
     bg_mask = _reachable_from_border(free_tight)
     fg_mask = ~bg_mask
 
-    # 5. Relleno de huecos interiores:
-    # Cualquier elemento interior (pantallas con fondos oscuros/azules, logos, texto)
-    # queda protegido y retenido como parte sólida del producto.
-    fg_filled = binary_fill_holes(fg_mask)
-
-    # 6. Mantener el componente principal más grande
-    mask = _largest_blob(fg_filled)
-
-    # 7. Suavizado final de contorno
-    mask = binary_closing(mask, structure=np.ones((3, 3)))
+    # 6. Limpieza morfológica y preservación de huecos reales (como asas de tazas)
+    fg_closed = binary_closing(fg_mask, structure=np.ones((5, 5)))
+    fg_blob = _largest_blob(fg_closed)
+    mask = binary_opening(fg_blob, structure=np.ones((3, 3)))
     mask = binary_fill_holes(mask)
 
     return mask if mask.mean() >= MIN_COVERAGE else None
