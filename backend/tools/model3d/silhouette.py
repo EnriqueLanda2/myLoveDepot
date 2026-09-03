@@ -14,6 +14,9 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
+from scipy.ndimage import binary_closing, binary_fill_holes
+from skimage.color import rgb2gray
+from skimage.filters import sobel
 
 # La silueta se calcula sobre una copia reducida: el tallado trabaja con rejillas
 # de ~70 vóxeles por lado, así que más resolución solo costaría tiempo.
@@ -82,7 +85,7 @@ def estimate_extents(views: list[View]) -> tuple[float, float, float]:
         extents[tall_axis] = 1.0
         hidden_axis = next(axis for axis in range(3)
                            if axis not in (wide_axis, tall_axis))
-        extents[hidden_axis] = min(extents[wide_axis], extents[tall_axis]) * 0.38
+        extents[hidden_axis] = min(extents[wide_axis], extents[tall_axis]) * 0.22
         return tuple(float(value) for value in extents / extents.max())
 
     equations: list[list[float]] = []
@@ -117,11 +120,38 @@ def _segment(pixels: np.ndarray) -> np.ndarray | None:
     background = np.median(border, axis=0)
     distance = np.linalg.norm(pixels - background, axis=2)
 
-    # Todo lo que se parece al color del borde y además conecta con el borde es
-    # fondo. Lo que queda encerrado pertenece al producto, aunque su color se
-    # parezca al fondo, así que los huecos interiores se rellenan solos.
-    free = distance < max(_otsu(distance), MIN_DISTANCE)
-    mask = _largest_blob(~_reachable_from_border(free))
+    # 1. Detección de bordes espaciales (gradiente Sobel).
+    # Previene que la inundación de fondo traspase el marco o chasis del
+    # producto cuando la pantalla u objetos internos tienen color similar al fondo.
+    gray = rgb2gray(pixels / 255.0)
+    edges = sobel(gray)
+    edge_barrier = edges > np.percentile(edges, 80)
+
+    # 2. Umbral de similitud con el fondo
+    otsu_val = _otsu(distance)
+    dist_thresh = max(otsu_val, MIN_DISTANCE)
+    free = (distance < dist_thresh) & (~edge_barrier)
+
+    # 3. Cierre morfológico de la barrera para sellar pequeñas fugas en el contorno
+    barrier = binary_closing(~free, structure=np.ones((5, 5)))
+    free_tight = ~barrier
+
+    # 4. Inundación desde los bordes para determinar el fondo conectado exterior
+    bg_mask = _reachable_from_border(free_tight)
+    fg_mask = ~bg_mask
+
+    # 5. Relleno de huecos interiores:
+    # Cualquier elemento interior (pantallas con fondos oscuros/azules, logos, texto)
+    # queda protegido y retenido como parte sólida del producto.
+    fg_filled = binary_fill_holes(fg_mask)
+
+    # 6. Mantener el componente principal más grande
+    mask = _largest_blob(fg_filled)
+
+    # 7. Suavizado final de contorno
+    mask = binary_closing(mask, structure=np.ones((3, 3)))
+    mask = binary_fill_holes(mask)
+
     return mask if mask.mean() >= MIN_COVERAGE else None
 
 

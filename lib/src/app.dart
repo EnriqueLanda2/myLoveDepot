@@ -30,8 +30,6 @@ class _DepotAppState extends State<DepotApp> {
   Widget build(BuildContext context) {
     // ── Paleta principal (LIGHT) ──────────────────────────────────────────────
     const magenta = Color(0xffd94f87);          // acento principal
-    const magentaDim = Color(0x33d94f87);       // magenta translúcido
-    const magentaGlow = Color(0x1ad94f87);      // brillo suave
 
     // Colores del tema CLARO (los originales de la app)
     const bgBase = Color(0xfffff6fa);           // fondo scaffold (crema rosado)

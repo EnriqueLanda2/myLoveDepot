@@ -7,6 +7,8 @@ import 'package:model_viewer_plus/model_viewer_plus.dart';
 import '../inventory_store.dart';
 import '../models.dart';
 import '../widgets/love_mascot.dart';
+import '../widgets/pwa_helpers.dart';
+import '../widgets/pwa_install_banner.dart';
 import 'categories_screen.dart';
 import 'product_form.dart';
 import 'scanner_screen.dart';
@@ -64,7 +66,14 @@ class _HomeScreenState extends State<HomeScreen> {
               body: Row(
                 children: [
                   if (wide) _buildNavRail(),
-                  Expanded(child: _page()),
+                  Expanded(
+                    child: Column(
+                      children: [
+                        const PwaInstallBanner(),
+                        Expanded(child: _page()),
+                      ],
+                    ),
+                  ),
                 ],
               ),
               bottomNavigationBar: wide ? null : _buildBottomNav(),
@@ -583,12 +592,30 @@ class _HomeScreenState extends State<HomeScreen> {
 
               const SizedBox(height: 20),
 
-              Center(
-                child: FilledButton.icon(
-                  onPressed: () => Navigator.pop(dialogContext),
-                  icon: const Icon(Icons.check_circle_outline_rounded, size: 18),
-                  label: const Text('¡ENTENDIDO!', style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1.1)),
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (PwaHelpers.isPwaInstallAvailable()) ...[
+                    FilledButton.icon(
+                      onPressed: () async {
+                        Navigator.pop(dialogContext);
+                        await PwaHelpers.triggerPwaInstall();
+                      },
+                      icon: const Icon(Icons.download_rounded, size: 18),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: _Colors.magenta,
+                        foregroundColor: Colors.white,
+                      ),
+                      label: const Text('INSTALAR AHORA', style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1.1)),
+                    ),
+                    const SizedBox(width: 12),
+                  ],
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    icon: const Icon(Icons.check_circle_outline_rounded, size: 18),
+                    label: const Text('¡ENTENDIDO!', style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1.1)),
+                  ),
+                ],
               ),
             ],
           ),
@@ -1388,17 +1415,23 @@ class _ModelStage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(children: [
       Expanded(
-        child: ModelViewer(
-          key: ValueKey(product.modelUrl),
-          src: product.modelUrl,
-          alt: 'Modelo 3D de ${product.name}',
-          autoRotate: true,
-          autoRotateDelay: 600,
-          cameraControls: true,
-          cameraOrbit: '25deg 70deg 105%',
-          shadowIntensity: 0.85,
-          exposure: 1.05,
-          backgroundColor: _Colors.bgDeep,
+        child: FutureBuilder<String>(
+          future: PwaHelpers.resolveModelUrl(product.modelUrl),
+          builder: (context, snapshot) {
+            final modelSrc = snapshot.data ?? product.modelUrl;
+            return ModelViewer(
+              key: ValueKey(modelSrc),
+              src: modelSrc,
+              alt: 'Modelo 3D de ${product.name}',
+              autoRotate: true,
+              autoRotateDelay: 600,
+              cameraControls: true,
+              cameraOrbit: '25deg 70deg 105%',
+              shadowIntensity: 0.85,
+              exposure: 1.05,
+              backgroundColor: _Colors.bgDeep,
+            );
+          },
         ),
       ),
       Container(
@@ -1899,136 +1932,6 @@ class _MovementsPage extends StatelessWidget {
     String two(int value) => value.toString().padLeft(2, '0');
     return '${two(date.day)}/${two(date.month)}/${date.year} '
         '${two(date.hour)}:${two(date.minute)}';
-  }
-
-  void _showInstallAppDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (dialogContext) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: Container(
-          width: 500,
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: _Colors.magenta.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(Icons.install_mobile_rounded, color: _Colors.magenta, size: 24),
-                  ),
-                  const SizedBox(width: 14),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'DESCARGAR / INSTALAR APLICACIÓN',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 1.2,
-                            color: _Colors.textPrimary,
-                          ),
-                        ),
-                        Text(
-                          'Instala My Love Depot en tu Android, iPhone o iPad',
-                          style: TextStyle(fontSize: 11, color: _Colors.textSecondary),
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(dialogContext),
-                    icon: const Icon(Icons.close),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 16),
-              const Divider(),
-              const SizedBox(height: 16),
-
-              // iOS Guide
-              const Row(
-                children: [
-                  Icon(Icons.apple, color: _Colors.magenta, size: 20),
-                  SizedBox(width: 8),
-                  Text(
-                    'EN IPHONE / IPAD (iOS Safari):',
-                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: _Colors.magenta, letterSpacing: 0.5),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xfffff6fa),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: _Colors.stroke),
-                ),
-                child: const Column(
-                  children: [
-                    _InstallStep(number: '1', text: 'Abre Safari y toca el botón Compartir (cuadro con flecha ⎋ arriba o abajo).'),
-                    SizedBox(height: 6),
-                    _InstallStep(number: '2', text: 'Desplázate hacia abajo y selecciona "Agregar a inicio" (Add to Home Screen 📲).'),
-                    SizedBox(height: 6),
-                    _InstallStep(number: '3', text: 'Toca "Agregar". ¡La app aparecerá en tu iPhone como una app nativa!'),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              // Android Guide
-              const Row(
-                children: [
-                  Icon(Icons.android_rounded, color: _Colors.green, size: 20),
-                  SizedBox(width: 8),
-                  Text(
-                    'EN ANDROID / CHROME / EDGE:',
-                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: _Colors.green, letterSpacing: 0.5),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xfff0fdf4),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.green.shade200),
-                ),
-                child: const Column(
-                  children: [
-                    _InstallStep(number: '1', text: 'Toca los tres puntos (⋮) en la esquina de tu navegador Chrome o Edge.'),
-                    SizedBox(height: 6),
-                    _InstallStep(number: '2', text: 'Selecciona "Instalar aplicación" o "Agregar a la pantalla principal".'),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 20),
-
-              Center(
-                child: FilledButton.icon(
-                  onPressed: () => Navigator.pop(dialogContext),
-                  icon: const Icon(Icons.check_circle_outline_rounded, size: 18),
-                  label: const Text('¡ENTENDIDO!', style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1.1)),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 }
 

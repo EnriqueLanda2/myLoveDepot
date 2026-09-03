@@ -1,12 +1,16 @@
 {
   "name": "My Love Depot",
-  "short_name": "My Love Depot",
+  "short_name": "Love Depot",
   "start_url": "./",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
   "background_color": "#fff6fa",
   "theme_color": "#d94f87",
-  "description": "Sistema de inventario y avatares 3D",
+  "description": "Sistema de inventario y visualización de modelos 3D sin conexión para tablets y móviles",
   "orientation": "any",
+  "lang": "es",
+  "dir": "ltr",
+  "categories": ["business", "productivity", "utilities"],
   "prefer_related_applications": false,
   "icons": [
     {

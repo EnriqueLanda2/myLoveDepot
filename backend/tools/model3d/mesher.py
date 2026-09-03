@@ -19,7 +19,7 @@ from PIL import Image
 from scipy.ndimage import gaussian_filter
 from skimage.measure import marching_cubes
 
-from silhouette import View
+from silhouette import MEASURED_AXES, View
 
 
 @dataclass(frozen=True)
@@ -75,12 +75,24 @@ def carve(views: list[View], extents: tuple[float, float, float],
 
 def surface(occupancy: np.ndarray, dims: tuple[int, int, int],
             extents: tuple[float, float, float], atlas,
-            smoothing: int = 2) -> Geometry:
+            smoothing: int = 2,
+            views: list[View] | None = None) -> Geometry:
     """Convierte los vóxeles ocupados en una malla continua y texturizada usando Marching Cubes."""
-    # Convertir ocupación booleana a campo continuo [0, 1] y suavizar
-    # El radio de desenfoque gaussiano elimina la naturaleza de "bloques"
-    sigma = max(0.5, smoothing * 0.4)
-    field_data = gaussian_filter(occupancy.astype(np.float32), sigma=sigma)
+    # Añadir 1 capa de ceros en los bordes para que Marching Cubes siempre cierre
+    # las caras frontales, traseras y laterales (caps), evitando que queden tubos abiertos
+    # o láminas sueltas.
+    pad_occ = np.pad(occupancy, 1, mode='constant', constant_values=False)
+
+    sigma_val = max(0.5, smoothing * 0.4)
+    if views is not None and len(views) == 1:
+        view = views[0]
+        wide_axis, tall_axis = MEASURED_AXES.get(view.index, (0, 1))
+        depth_axis = next(axis for axis in range(3) if axis not in (wide_axis, tall_axis))
+        sigma = [sigma_val, sigma_val, sigma_val]
+        sigma[depth_axis] = 0.25
+        field_data = gaussian_filter(pad_occ.astype(np.float32), sigma=tuple(sigma))
+    else:
+        field_data = gaussian_filter(pad_occ.astype(np.float32), sigma=sigma_val)
 
     try:
         # Extraer superficie isosuperficie suave
@@ -89,13 +101,12 @@ def surface(occupancy: np.ndarray, dims: tuple[int, int, int],
         # Si el campo es uniforme (ej. falla total), devolver malla vacía
         return Geometry()
 
-    # Mapear de [0, dims-1] a [-half_extents, +half_extents]
-    # Marching cubes da coordenadas entre 0 y dims-1
+    # Mapear de coordenadas con padding a [-half_extents, +half_extents]
     half = [extents[0]*0.5, extents[1]*0.5, extents[2]*0.5]
     scaled_verts = np.zeros_like(verts)
     for i in range(3):
-        # Escalar mapeando 0 a -half y dims a +half
-        scaled_verts[:, i] = -half[i] + (verts[:, i] / dims[i]) * extents[i]
+        # Al estar padded por 1 capa, la coordenada en la rejilla original es (verts - 1.0)
+        scaled_verts[:, i] = -half[i] + ((verts[:, i] - 1.0) / max(1, dims[i])) * extents[i]
 
     # Re-triangular para permitir costuras UV netas
     final_positions = []

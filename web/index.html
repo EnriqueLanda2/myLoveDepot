@@ -17,19 +17,93 @@
   <title>My Love Depot</title>
   <script type="module" src="./assets/packages/model_viewer_plus/assets/model-viewer.min.js" defer></script>
   <script>
+    // ── PWA Installation Support ─────────────────────────────────────────────
     let deferredPrompt = null;
+    window.pwaCanInstall = false;
+
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
       deferredPrompt = e;
       window.pwaCanInstall = true;
+      window.dispatchEvent(new CustomEvent('pwaInstallAvailable'));
     });
+
     window.triggerPwaInstall = function() {
       if (deferredPrompt) {
         deferredPrompt.prompt();
-        deferredPrompt.userChoice.then(() => {
+        return deferredPrompt.userChoice.then((choiceResult) => {
           deferredPrompt = null;
           window.pwaCanInstall = false;
+          window.dispatchEvent(new CustomEvent('pwaInstallFinished', { detail: choiceResult }));
+          return choiceResult.outcome === 'accepted';
         });
+      }
+      return Promise.resolve(false);
+    };
+
+    // ── IndexedDB 3D Model Cache ─────────────────────────────────────────────
+    const DB_NAME = 'my_love_depot_3d_cache';
+    const STORE_NAME = 'glb_models';
+    let dbPromise = null;
+
+    function getModelDB() {
+      if (!dbPromise) {
+        dbPromise = new Promise((resolve, reject) => {
+          if (!window.indexedDB) {
+            return reject(new Error('IndexedDB no soportado en este entorno'));
+          }
+          const request = indexedDB.open(DB_NAME, 1);
+          request.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+              db.createObjectStore(STORE_NAME);
+            }
+          };
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+      }
+      return dbPromise;
+    }
+
+    // Retorna una URL blob local inmediata si ya está guardado, o lo descarga,
+    // lo almacena en IndexedDB y retorna la URL local para visualización rápida y offline.
+    window.getModelBlobUrl = async function(url) {
+      if (!url || typeof url !== 'string' || !url.startsWith('http')) {
+        return url;
+      }
+      try {
+        const db = await getModelDB();
+
+        // 1. Comprobar si ya existe en caché IndexedDB
+        const cachedBlob = await new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE_NAME, 'readonly');
+          const store = tx.objectStore(STORE_NAME);
+          const req = store.get(url);
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
+
+        if (cachedBlob && cachedBlob.size > 0) {
+          return URL.createObjectURL(cachedBlob);
+        }
+
+        // 2. Si no está en caché, descargarlo con fetch
+        const response = await fetch(url);
+        if (!response.ok) {
+          return url;
+        }
+        const blob = await response.blob();
+
+        // 3. Almacenar en IndexedDB para futuras aperturas y modo offline
+        const putTx = db.transaction(STORE_NAME, 'readwrite');
+        const putStore = putTx.objectStore(STORE_NAME);
+        putStore.put(blob, url);
+
+        return URL.createObjectURL(blob);
+      } catch (err) {
+        console.warn('[ModelCache] Fallback a URL directa debido a:', err);
+        return url;
       }
     };
   </script>

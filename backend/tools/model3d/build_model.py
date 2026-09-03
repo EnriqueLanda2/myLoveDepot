@@ -53,7 +53,7 @@ def build(source: Path, destination: Path, resolution: int,
     extents = estimate_extents(views)
     occupancy, dims = carve(views, extents, resolution)
     atlas = Atlas(views)
-    geometry = surface(occupancy, dims, extents, atlas, smoothing)
+    geometry = surface(occupancy, dims, extents, atlas, smoothing, views=views)
 
     import subprocess
 
