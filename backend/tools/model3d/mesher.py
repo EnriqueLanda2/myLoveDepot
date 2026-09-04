@@ -61,16 +61,10 @@ class Geometry:
 
 def carve(views: list[View], extents: tuple[float, float, float],
           resolution: int) -> tuple[np.ndarray, tuple[int, int, int]]:
-    """Interseca las siluetas extruidas sobre una rejilla de vóxeles."""
+    """Genera el volumen continuo del producto a partir de la silueta principal y proporciones medidas."""
     dims = tuple(max(MIN_CELLS, round(resolution * value)) for value in extents)
-    occupancy = np.ones(dims, dtype=bool)
-    single_view = (len(views) == 1)
-    for view in views:
-        occupancy &= _extrusion(view, dims, apply_radial_profile=single_view)
-    if not occupancy.any():
-        # Siluetas incompatibles entre sí (encuadres muy distintos): es
-        # preferible una caja con las proporciones medidas que nada.
-        occupancy = np.ones(dims, dtype=bool)
+    primary = next((v for v in views if v.index == 0), views[0])
+    occupancy = _extrusion(primary, dims, apply_radial_profile=True)
     return occupancy, dims
 
 
@@ -90,22 +84,11 @@ def surface(occupancy: np.ndarray, dims: tuple[int, int, int],
         # Cubos: suavizado adecuado para caras lisas continuas y 12 aristas rectas biseladas
         field_data = gaussian_filter(pad_occ.astype(np.float32), sigma=0.85)
     elif is_any_slab:
-        # Smartphones y pantallas: plano en pantalla frontal, contorno biselado
-        sigma = [0.55, 0.55, 0.55]
-        if views is not None and len(views) == 1:
-            view = views[0]
-            wide_axis, tall_axis = MEASURED_AXES.get(view.index, (0, 1))
-            depth_axis = next(axis for axis in range(3) if axis not in (wide_axis, tall_axis))
-            sigma[depth_axis] = 0.25
-        field_data = gaussian_filter(pad_occ.astype(np.float32), sigma=tuple(sigma))
+        # Carteras, teléfonos, libros y cajas: caras planas y bordes biselados limpios
+        field_data = gaussian_filter(pad_occ.astype(np.float32), sigma=(0.6, 0.6, 0.45))
     elif is_any_round:
         # Vasos, tazas y botellas: suave en circunferencia (X, Z), pero borde de la boca y base nítidos (eje Y)
-        sigma = [sigma_val, sigma_val, sigma_val]
-        if views is not None and len(views) == 1:
-            view = views[0]
-            wide_axis, tall_axis = MEASURED_AXES.get(view.index, (0, 1))
-            sigma[tall_axis] = 0.45  # Mantiene base plana y borde de la boca nivelado
-        field_data = gaussian_filter(pad_occ.astype(np.float32), sigma=tuple(sigma))
+        field_data = gaussian_filter(pad_occ.astype(np.float32), sigma=(sigma_val, 0.45, sigma_val))
     else:
         field_data = gaussian_filter(pad_occ.astype(np.float32), sigma=sigma_val)
 
@@ -125,23 +108,34 @@ def surface(occupancy: np.ndarray, dims: tuple[int, int, int],
     final_indices = []
     vertex_count = 0
 
-    single_view = views is not None and len(views) == 1
+    has_side_views = views is not None and any(v.index in (2, 3) for v in views)
 
     for face in faces:
         p0, p1, p2 = scaled_verts[face[0]], scaled_verts[face[1]], scaled_verts[face[2]]
         n0, n1, n2 = normals[face[0]], normals[face[1]], normals[face[2]]
         
-        if single_view:
-            # En vista única (solo foto frontal), proyectar de forma continua desde el frente
-            # para z >= 0 y desde atrás (espejado) para z < 0, evitando saltos bruscos a 45°
-            face_z = (p0[2] + p1[2] + p2[2]) / 3.0
-            slot = atlas.slot_for(0 if face_z >= 0 else 1)
+        face_normal = (n0 + n1 + n2) / 3.0
+        nx, ny, nz = float(face_normal[0]), float(face_normal[1]), float(face_normal[2])
+        abs_x, abs_y, abs_z = abs(nx), abs(ny), abs(nz)
+
+        # Proyección de vistas según la orientación normal de cada cara:
+        if abs_z >= abs_x and abs_z >= abs_y:
+            # Frente o Atrás
+            view_idx = 0 if nz >= 0 else 1
+        elif abs_x > abs_y and has_side_views:
+            # Izquierda (-X) o Derecha (+X) cuando el usuario aportó fotos laterales
+            view_idx = 2 if nx < 0 else 3
+        elif ny > abs_x and ny > abs_z and (views is not None and any(v.index == 4 for v in views)):
+            # Arriba (+Y) cuando el usuario aportó foto superior
+            view_idx = 4
+        elif ny < -abs_x and ny < -abs_z:
+            # Base inferior (-Y): color neutro de apoyo
+            view_idx = None
         else:
-            face_normal = (n0 + n1 + n2) / 3.0
-            axis = int(np.argmax(np.abs(face_normal)))
-            sign = 1 if face_normal[axis] >= 0 else -1
-            slot = atlas.slot_for(FACE_VIEWS.get((axis, sign)))
-        
+            # Por defecto, frente para Z>=0 y atrás para Z<0
+            view_idx = 0 if (p0[2] + p1[2] + p2[2]) >= 0 else 1
+
+        slot = atlas.slot_for(view_idx)
         uv0 = slot.coordinates(p0, half)
         uv1 = slot.coordinates(p1, half)
         uv2 = slot.coordinates(p2, half)

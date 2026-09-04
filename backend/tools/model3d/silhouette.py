@@ -14,7 +14,10 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
-from scipy.ndimage import binary_closing, binary_fill_holes, binary_opening, gaussian_filter, label
+from scipy.ndimage import (
+    binary_closing, binary_erosion, binary_fill_holes, binary_opening,
+    distance_transform_edt, gaussian_filter, label
+)
 from skimage import exposure
 from skimage.color import rgb2gray
 from skimage.filters import sobel
@@ -48,13 +51,14 @@ class View:
 
 
 def _profile_shape(mask: np.ndarray) -> tuple[float, bool, bool]:
-    """Analiza la silueta para clasificar si es redondo (vaso/taza), cubo o plano."""
+    """Analiza la silueta para clasificar si es cubo, lámina/cartera/caja o redondo."""
     y_idx, x_idx = np.where(mask)
     if len(y_idx) == 0:
         return 4.0, False, False
     h_min, h_max = int(y_idx.min()), int(y_idx.max())
+    w_min, w_max = int(x_idx.min()), int(x_idx.max())
     h = max(1, h_max - h_min + 1)
-    w = max(1, int(x_idx.max() - x_idx.min() + 1))
+    w = max(1, w_max - w_min + 1)
     aspect = w / float(h)
     solidity = mask.sum() / float(w * h)
 
@@ -71,11 +75,11 @@ def _profile_shape(mask: np.ndarray) -> tuple[float, bool, bool]:
     mid_std = float(np.std(mid_w) / (np.mean(mid_w) + 1e-5))
 
     # Criterios geométricos:
-    # 1. Lámina plana (teléfonos, tablets): silueta alargada con laterales rectos y paralelos
-    is_flat_slab = (aspect < 0.72) and (mid_std < 0.035)
-    # 2. Cubo / caja cuadrada: relación de aspecto cercana a 1:1, laterales rectos y solidez alta
-    is_cube = (aspect >= 0.80) and (mid_std < 0.05) and (solidity >= 0.80)
-    # 3. Redondo / cilíndrico (vasos, tazas, botellas, esferas): todo objeto con variación de ancho
+    # 1. Cubo / caja cuadrada: relación de aspecto cercana a 1:1, laterales rectos y solidez alta
+    is_cube = (0.84 <= aspect <= 1.18) and (mid_std < 0.06) and (solidity >= 0.80)
+    # 2. Lámina / caja / cartera / libro (prismas rectangulares): laterales rectos y alta solidez
+    is_flat_slab = not is_cube and (solidity >= 0.74) and (mid_std < 0.08)
+    # 3. Redondo / cilíndrico (vasos, tazas, botellas, esferas): siluetas con curvatura o variaciones
     is_round = not is_flat_slab and not is_cube
 
     if is_flat_slab:
@@ -109,6 +113,19 @@ def load_view(index: int, path: Path) -> View | None:
         round(bottom / mask.shape[0] * image.height),
     ))
     cropped_mask = mask[top:bottom, left:right]
+
+    # Sangrado de bordes (Edge Bleeding) con EDT:
+    # Reemplaza cualquier píxel del fondo (fuera de la máscara) por el color del borde del producto.
+    # Así, si el producto fue fotografiado sobre una manta azul, mantel o madera,
+    # el color del fondo NUNCA aparecerá en los bordes del modelo 3D.
+    mask_full = np.asarray(Image.fromarray((cropped_mask * 255).astype(np.uint8)).resize(crop.size, Image.BILINEAR)) > 128
+    eroded_mask = binary_erosion(mask_full, structure=np.ones((5, 5)))
+    if eroded_mask.any():
+        crop_arr = np.asarray(crop)
+        _, nearest_idx = distance_transform_edt(~eroded_mask, return_indices=True)
+        clean_arr = crop_arr[nearest_idx[0], nearest_idx[1]]
+        crop = Image.fromarray(clean_arr)
+
     p, is_round, is_cube = _profile_shape(cropped_mask)
     return View(
         index=index,
@@ -122,45 +139,33 @@ def load_view(index: int, path: Path) -> View | None:
 
 def estimate_extents(views: list[View]) -> tuple[float, float, float]:
     """Resuelve las proporciones X:Y:Z a partir de las razones de aspecto y perfil geométrico."""
-    if len(views) == 1:
-        view = views[0]
-        wide_axis, tall_axis = MEASURED_AXES[view.index]
-        extents = np.ones(3, dtype=np.float64)
-        extents[wide_axis] = view.aspect
-        extents[tall_axis] = 1.0
-        hidden_axis = next(axis for axis in range(3)
-                           if axis not in (wide_axis, tall_axis))
-        
-        # Objetos redondos (vasos, tazas, botellas) o cubos tienen profundidad = ancho
-        if view.is_round or view.is_cube or view.aspect >= 0.82:
-            depth_factor = 1.0
-        elif view.p >= 4.2 and view.aspect < 0.70:
-            depth_factor = 0.22
+    front_views = [v for v in views if v.index in (0, 1)]
+    primary = front_views[0] if front_views else views[0]
+    wide_axis, tall_axis = MEASURED_AXES.get(primary.index, (0, 1))
+
+    extents = np.ones(3, dtype=np.float64)
+    extents[wide_axis] = primary.aspect
+    extents[tall_axis] = 1.0
+    hidden_axis = next(axis for axis in range(3) if axis not in (wide_axis, tall_axis))
+
+    # Si el usuario subió vista lateral (2: Izquierda o 3: Derecha), medir profundidad real:
+    side_views = [v for v in views if v.index in (2, 3)]
+    if side_views:
+        # La vista lateral mide (Z, Y): su aspecto es directamente el espesor relativo Z / Y
+        depth_factor = float(np.clip(side_views[0].aspect, 0.12, 1.2))
+    elif primary.is_round:
+        depth_factor = 1.0
+    elif primary.is_cube:
+        depth_factor = 1.0
+    elif primary.p >= 4.2: # slab / cartera / teléfono
+        if primary.aspect < 0.70:
+            depth_factor = 0.20 # Teléfono
         else:
-            depth_factor = float(np.clip(0.22 + 0.78 * ((view.aspect - 0.45) / 0.35), 0.22, 1.0))
+            depth_factor = float(np.clip(0.28, 0.18, 0.40)) # Cartera / libreta / caja
+    else:
+        depth_factor = float(np.clip(0.22 + 0.78 * ((primary.aspect - 0.45) / 0.35), 0.22, 1.0))
 
-        extents[hidden_axis] = min(extents[wide_axis], extents[tall_axis]) * depth_factor
-        return tuple(float(value) for value in extents / extents.max())
-
-    equations: list[list[float]] = []
-    targets: list[float] = []
-    for view in views:
-        wide_axis, tall_axis = MEASURED_AXES[view.index]
-        equation = [0.0, 0.0, 0.0]
-        equation[wide_axis] = 1.0
-        equation[tall_axis] = -1.0
-        equations.append(equation)
-        targets.append(float(np.log(view.aspect)))
-    for axis in range(3):
-        equation = [0.0, 0.0, 0.0]
-        equation[axis] = 0.05
-        equations.append(equation)
-        targets.append(0.0)
-
-    solution, *_ = np.linalg.lstsq(
-        np.array(equations), np.array(targets), rcond=None,
-    )
-    extents = np.exp(solution)
+    extents[hidden_axis] = min(extents[wide_axis], extents[tall_axis]) * depth_factor
     return tuple(float(value) for value in extents / extents.max())
 
 
@@ -190,9 +195,13 @@ def _segment(pixels: np.ndarray) -> np.ndarray | None:
     edges = sobel(enhanced_gray)
     edge_barrier = edges > np.percentile(edges, 85)
 
-    # 3. Identificación directa de primer plano: los píxeles con discrepancia de fondo o bordes
-    fg = (d2 >= 16.0) | edge_barrier
-    fg = binary_closing(fg, structure=np.ones((7, 7)))
+    # 3. Identificación directa de primer plano:
+    # El soporte de bordes SOLO actúa donde haya una discrepancia de color perceptible (d2 >= 6.0)
+    # Evita absolutamente que texturas de fondo (telas, mantas, vetas de madera) se conviertan en objeto.
+    edge_support = edge_barrier & (d2 >= 6.0)
+    fg = (d2 >= 16.0) | edge_support
+    fg = binary_opening(fg, structure=np.ones((3, 3)))
+    fg = binary_closing(fg, structure=np.ones((5, 5)))
 
     # 4. Filtrado multi-componente inteligente:
     # Conserva tanto la pieza principal como accesorios o wands/aplicadores desconectados (>= 12% del mayor)
@@ -213,12 +222,20 @@ def _segment(pixels: np.ndarray) -> np.ndarray | None:
     total_area = max(1, fg_filled.sum())
 
     keep_open = np.zeros_like(holes)
+    fg_x_coords = np.where(fg_filled)[1]
+    fg_x_min, fg_x_max = (float(fg_x_coords.min()), float(fg_x_coords.max())) if len(fg_x_coords) else (0.0, float(width))
+    fg_w = max(1.0, fg_x_max - fg_x_min)
+
     for h_id in range(1, num_holes + 1):
         ratio = hole_counts[h_id] / float(total_area)
         coords = np.where(hole_labels == h_id)
         y_mean = float(np.mean(coords[0])) / float(height)
+        x_mean = float(np.mean(coords[1]))
+        # Un asa de taza o anilla está situada en los flancos laterales del objeto (al menos 30% lejos del centro)
+        x_rel = (x_mean - fg_x_min) / fg_w
+        is_outer_flank = (x_rel < 0.28 or x_rel > 0.72)
         hole_d2 = d2[coords]
-        if 0.008 <= ratio <= 0.16 and np.median(hole_d2) < 12.0 and (0.18 <= y_mean <= 0.82):
+        if is_outer_flank and 0.008 <= ratio <= 0.16 and np.median(hole_d2) < 12.0 and (0.18 <= y_mean <= 0.82):
             keep_open |= (hole_labels == h_id)
 
     mask = fg_filled & (~keep_open)

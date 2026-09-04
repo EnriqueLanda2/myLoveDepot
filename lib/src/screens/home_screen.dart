@@ -1428,7 +1428,7 @@ class _ModelStage extends StatelessWidget {
               cameraControls: true,
               cameraOrbit: '25deg 70deg 105%',
               shadowIntensity: 0.65,
-              exposure: 1.15,
+              exposure: 1.0,
               backgroundColor: _Colors.bgDeep,
             );
           },
