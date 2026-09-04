@@ -71,6 +71,7 @@ def write_glb(path: Path, geometry, texture: bytes, mime: str,
         }],
         'materials': [{
             'name': 'fotografias',
+            'doubleSided': True,
             'pbrMetallicRoughness': {
                 'baseColorTexture': {'index': 0},
                 'metallicFactor': float(metallic_factor),

@@ -25,8 +25,8 @@ from mesher import carve, surface
 from silhouette import estimate_extents, load_view
 
 VIEW_COUNT = 5
-DEFAULT_RESOLUTION = 64
-DEFAULT_SMOOTHING = 4
+DEFAULT_RESOLUTION = 96
+DEFAULT_SMOOTHING = 3
 JPEG_QUALITY = 90
 
 
@@ -65,17 +65,19 @@ def build(source: Path, destination: Path, resolution: int,
     is_any_slab = any(getattr(v, 'p', 4.0) >= 4.2 and not getattr(v, 'is_round', False) and not getattr(v, 'is_cube', False) for v in views)
 
     if is_any_round:
-        roughness = 0.38
+        # Cerámica, vidrio: suave y ligeramente brillante
+        roughness = 0.42
         metallic = 0.0
     elif is_any_cube:
-        roughness = 0.50
+        # Cajas, cubos: mate suave
+        roughness = 0.55
         metallic = 0.0
     elif is_any_slab:
         # Carteras, teléfonos, libros, cajas: acabado natural mate con suave brillo difuso
-        roughness = 0.65
+        roughness = 0.62
         metallic = 0.0
     else:
-        roughness = 0.58
+        roughness = 0.55
         metallic = 0.0
 
     size = write_glb(destination, geometry, texture.getvalue(), 'image/jpeg',

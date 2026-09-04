@@ -17,11 +17,12 @@ from PIL import Image, ImageEnhance
 from mesher import PROJECTIONS, Projection
 from silhouette import View
 
-TILE = 768
+TILE = 1024
 COLUMNS = 3
 ROWS = 2
 NEUTRAL_COLUMN, NEUTRAL_ROW = 2, 1
 FALLBACK_COLOUR = (225, 215, 210)
+PADDING = 4  # Px de padding para evitar costuras de textura
 
 
 def _enhance_texture(image: Image.Image) -> Image.Image:
@@ -101,7 +102,9 @@ class Atlas:
             if crop_to_use is not None:
                 enhanced_crop = _enhance_texture(crop_to_use)
                 resized = enhanced_crop.resize((TILE, TILE), Image.LANCZOS)
-                self.image.paste(resized, (column * TILE, row * TILE))
+                # Aplicar padding: replicar bordes para evitar costuras de textura
+                padded = _apply_tile_padding(resized)
+                self.image.paste(padded, (column * TILE, row * TILE))
                 self._slots[view_idx] = _PhotoSlot(
                     column=column, row=row, projection=PROJECTIONS[view_idx],
                 )
@@ -119,7 +122,39 @@ def _fraction(point: list[float], half: list[float], spec: tuple[int, int]) -> f
 
 
 def _atlas_axis(cell: int, fraction: float, cells: int) -> float:
-    return (cell * TILE + 0.5 + fraction * (TILE - 1)) / (cells * TILE)
+    # Inset UVs ligeramente para evitar muestrear pixeles del tile vecino
+    inset = PADDING + 0.5
+    return (cell * TILE + inset + fraction * (TILE - 2 * inset)) / (cells * TILE)
+
+
+def _apply_tile_padding(tile: Image.Image) -> Image.Image:
+    """Extiende los píxeles del borde hacia afuera para evitar costuras UV.
+
+    Replica la fila/columna más externa en cada dirección por PADDING píxeles.
+    Así, cuando el muestreador bilineal de la GPU toma texels más allá del borde,
+    obtiene el color del borde del producto en vez del color del tile vecino.
+    """
+    arr = np.asarray(tile)
+    h, w = arr.shape[:2]
+    # Limitar el padding al tamaño del tile
+    p = min(PADDING, h // 4, w // 4)
+    if p <= 0:
+        return tile
+    result = arr.copy()
+    # Replicar bordes hacia adentro (sobrescribir las franjas periféricas)
+    # Borde superior: copiar fila p hacia las filas 0..p-1
+    for i in range(p):
+        result[i, :] = arr[p, :]
+    # Borde inferior: copiar fila h-p-1 hacia las filas h-p..h-1
+    for i in range(p):
+        result[h - 1 - i, :] = arr[h - 1 - p, :]
+    # Borde izquierdo
+    for i in range(p):
+        result[:, i] = result[:, p]
+    # Borde derecho
+    for i in range(p):
+        result[:, w - 1 - i] = result[:, w - 1 - p]
+    return Image.fromarray(result)
 
 
 def _dominant_colour(views: list[View]) -> tuple[int, int, int]:

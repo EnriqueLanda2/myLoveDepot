@@ -24,7 +24,7 @@ from skimage.filters import sobel
 
 # La silueta se calcula sobre una copia reducida: el tallado trabaja con rejillas
 # de ~70 vóxeles por lado, así que más resolución solo costaría tiempo.
-WORK_SIZE = 256
+WORK_SIZE = 384
 BORDER_FRACTION = 0.05
 MIN_DISTANCE = 12.0
 MIN_COVERAGE = 0.015
