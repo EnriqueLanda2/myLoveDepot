@@ -28,10 +28,8 @@ export async function validateProductScan(input: Buffer) {
       !['jpeg', 'png', 'webp'].includes(metadata.format ?? '')) {
     throw new ScanQualityError('Usa una foto JPEG, PNG o WebP válida.');
   }
-  if (metadata.width < MIN_SIDE || metadata.height < MIN_SIDE) {
-    throw new ScanQualityError(
-      `Acércate y vuelve a escanear: la foto debe medir al menos ${MIN_SIDE} x ${MIN_SIDE} píxeles.`,
-    );
+  if (metadata.width < 64 || metadata.height < 64) {
+    throw new ScanQualityError('La imagen es demasiado pequeña para procesarla.');
   }
 
   const oriented = sharp(input, { failOn: 'error', limitInputPixels: 25_000_000 })
@@ -39,34 +37,13 @@ export async function validateProductScan(input: Buffer) {
     .removeAlpha()
     .toColourspace('srgb');
   const stats = await oriented.clone().greyscale().stats();
-  const brightness = stats.channels[0]?.mean ?? 0;
-  if (brightness < 38) {
-    throw new ScanQualityError('La foto está muy oscura. Usa más luz y evita sombras fuertes.');
-  }
-  if (brightness > 238) {
-    throw new ScanQualityError('La foto está sobreexpuesta. Evita el flash directo y vuelve a intentarlo.');
-  }
-  if (stats.sharpness < MIN_SHARPNESS) {
-    throw new ScanQualityError('La foto está borrosa. Limpia la cámara, mantén el teléfono firme y vuelve a escanear.');
-  }
+  const brightness = stats.channels[0]?.mean ?? 128;
 
   const sample = await oriented.clone()
     .resize({ width: ANALYSIS_SIZE, height: ANALYSIS_SIZE, fit: 'inside' })
     .raw()
     .toBuffer({ resolveWithObject: true });
   const shape = foregroundShape(sample.data, sample.info.width, sample.info.height);
-  if (shape.coverage < MIN_FOREGROUND) {
-    throw new ScanQualityError('El producto se ve muy pequeño. Acércate hasta que ocupe buena parte del recuadro.');
-  }
-  if (shape.coverage > MAX_FOREGROUND || shape.touchesEdge) {
-    throw new ScanQualityError('El producto está cortado. Aléjate un poco y deja espacio visible alrededor.');
-  }
-  if (Math.abs(shape.centerX - 0.5) > 0.2 || Math.abs(shape.centerY - 0.5) > 0.2) {
-    throw new ScanQualityError('Centra el producto dentro del recuadro antes de tomar la foto.');
-  }
-  if (shape.contrast < 24) {
-    throw new ScanQualityError('Usa un fondo liso que contraste más con el color del producto.');
-  }
 
   const safeImage = await oriented
     .resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })

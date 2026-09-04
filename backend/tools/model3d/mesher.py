@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 from PIL import Image
-from scipy.ndimage import gaussian_filter
+from scipy.ndimage import distance_transform_edt, gaussian_filter
 from skimage.measure import marching_cubes
 
 from silhouette import MEASURED_AXES, View
@@ -79,16 +79,12 @@ def surface(occupancy: np.ndarray, dims: tuple[int, int, int],
             smoothing: int = 2,
             views: list[View] | None = None) -> Geometry:
     """Convierte los vóxeles ocupados en una malla continua y texturizada usando Marching Cubes."""
-    # Añadir 1 capa de ceros en los bordes para que Marching Cubes siempre cierre
-    # las caras frontales, traseras y laterales (caps), evitando que queden tubos abiertos
-    # o láminas sueltas.
     pad_occ = np.pad(occupancy, 1, mode='constant', constant_values=False)
 
     sigma_val = max(0.5, smoothing * 0.4)
     is_any_round = any(getattr(v, 'is_round', False) for v in views) if views else False
 
     if is_any_round:
-        # Suavizado isotrópico 3D completo para objetos redondeados (vasos, tazas, botellas)
         field_data = gaussian_filter(pad_occ.astype(np.float32), sigma=sigma_val)
     elif views is not None and len(views) == 1:
         view = views[0]
@@ -101,36 +97,37 @@ def surface(occupancy: np.ndarray, dims: tuple[int, int, int],
         field_data = gaussian_filter(pad_occ.astype(np.float32), sigma=sigma_val)
 
     try:
-        # Extraer superficie isosuperficie suave
         verts, faces, normals, values = marching_cubes(field_data, level=0.5)
     except ValueError:
-        # Si el campo es uniforme (ej. falla total), devolver malla vacía
         return Geometry()
 
-    # Mapear de coordenadas con padding a [-half_extents, +half_extents]
     half = [extents[0]*0.5, extents[1]*0.5, extents[2]*0.5]
     scaled_verts = np.zeros_like(verts)
     for i in range(3):
-        # Al estar padded por 1 capa, la coordenada en la rejilla original es (verts - 1.0)
         scaled_verts[:, i] = -half[i] + ((verts[:, i] - 1.0) / max(1, dims[i])) * extents[i]
 
-    # Re-triangular para permitir costuras UV netas
     final_positions = []
     final_normals = []
     final_uvs = []
     final_indices = []
     vertex_count = 0
 
+    single_view = views is not None and len(views) == 1
+
     for face in faces:
         p0, p1, p2 = scaled_verts[face[0]], scaled_verts[face[1]], scaled_verts[face[2]]
         n0, n1, n2 = normals[face[0]], normals[face[1]], normals[face[2]]
         
-        # Orientación dominante de la cara
-        face_normal = (n0 + n1 + n2) / 3.0
-        axis = int(np.argmax(np.abs(face_normal)))
-        sign = 1 if face_normal[axis] >= 0 else -1
-        
-        slot = atlas.slot_for(FACE_VIEWS.get((axis, sign)))
+        if single_view:
+            # En vista única (solo foto frontal), proyectar de forma continua desde el frente
+            # para z >= 0 y desde atrás (espejado) para z < 0, evitando saltos bruscos a 45°
+            face_z = (p0[2] + p1[2] + p2[2]) / 3.0
+            slot = atlas.slot_for(0 if face_z >= 0 else 1)
+        else:
+            face_normal = (n0 + n1 + n2) / 3.0
+            axis = int(np.argmax(np.abs(face_normal)))
+            sign = 1 if face_normal[axis] >= 0 else -1
+            slot = atlas.slot_for(FACE_VIEWS.get((axis, sign)))
         
         uv0 = slot.coordinates(p0, half)
         uv1 = slot.coordinates(p1, half)
@@ -170,39 +167,36 @@ def _extrusion(view: View, dims: tuple[int, int, int], apply_radial_profile: boo
         order = [horizontal_axis, vertical_axis, depth_axis]
         return np.transpose(silhouette[:, :, None] * np.ones((1, 1, D), dtype=bool), np.argsort(order))
 
-    p = getattr(view, 'p', 4.0)
-    vol_slice = np.zeros((W, H, D), dtype=bool)
+    # Transformada de distancia euclidiana (EDT) 2D:
+    # Garantiza una superficie 100% continua en todas direcciones,
+    # eliminando saltos bruscos entre filas ("dientes de sierra" o grietas).
+    edt = distance_transform_edt(silhouette)
     zc = (D - 1) / 2.0
-    aspect_scale = D / float(W)
+    scale_z = D / float(W)
 
-    for y in range(H):
-        row = silhouette[:, y]
-        if not row.any():
-            continue
+    p = getattr(view, 'p', 4.0)
+    is_round = getattr(view, 'is_round', False)
+    max_d = edt.max() if edt.max() > 0 else 1.0
 
-        # Segmentos contiguos para respetar orificios (como asas de tazas) y piezas múltiples (frascos + aplicadores)
-        padded = np.pad(row.astype(int), (1, 1), 'constant')
-        diffs = np.diff(padded)
-        starts = np.where(diffs == 1)[0]
-        ends = np.where(diffs == -1)[0]
+    vol_slice = np.zeros((W, H, D), dtype=bool)
 
-        for st, en in zip(starts, ends):
-            xc = (st + en - 1) / 2.0
-            rx = max(0.5, (en - st) / 2.0)
-            # El radio de profundidad (Z) es proporcional al grosor del segmento (X)
-            # Evita que varillas finas (aplicadores) o asas se estiren como muros gruesos
-            rz = max(1.0, rx * aspect_scale)
-            segment_p = 2.0 if (rx <= 4.0 or getattr(view, 'is_round', False)) else p
+    for x in range(W):
+        for y in range(H):
+            d = edt[x, y]
+            if d <= 0:
+                continue
 
-            for x in range(st, en):
-                nx = abs(x - xc) / rx
-                if nx < 1.0:
-                    max_dz = (1.0 - nx**segment_p)**(1.0 / segment_p) * rz
-                    for z in range(D):
-                        if abs(z - zc) <= max_dz:
-                            vol_slice[x, y, z] = True
-                else:
-                    vol_slice[x, y, int(zc)] = True
+            if is_round:
+                # Perfil circular / revolución continuo
+                max_dz = d * scale_z
+            else:
+                # Perfil superelíptico / caja / plano (ej. teléfonos o cubos)
+                norm_d = min(1.0, d / (max_d * 0.45))
+                max_dz = (norm_d ** (1.0 / p)) * (D * 0.48)
+
+            for z in range(D):
+                if abs(z - zc) <= max_dz:
+                    vol_slice[x, y, z] = True
 
     order = [horizontal_axis, vertical_axis, depth_axis]
     return np.transpose(vol_slice, np.argsort(order))
