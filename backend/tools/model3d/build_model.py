@@ -25,9 +25,9 @@ from mesher import carve, surface
 from silhouette import estimate_extents, load_view
 
 VIEW_COUNT = 5
-DEFAULT_RESOLUTION = 56
+DEFAULT_RESOLUTION = 64
 DEFAULT_SMOOTHING = 4
-JPEG_QUALITY = 86
+JPEG_QUALITY = 90
 
 
 def build(source: Path, destination: Path, resolution: int,

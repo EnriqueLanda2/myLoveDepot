@@ -17,7 +17,7 @@ from PIL import Image, ImageEnhance
 from mesher import PROJECTIONS, Projection
 from silhouette import View
 
-TILE = 512
+TILE = 768
 COLUMNS = 3
 ROWS = 2
 NEUTRAL_COLUMN, NEUTRAL_ROW = 2, 1

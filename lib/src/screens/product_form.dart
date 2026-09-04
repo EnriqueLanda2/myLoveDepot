@@ -168,7 +168,7 @@ class _ProductFormState extends State<ProductForm> {
                             const SizedBox(width: 10),
                             const Expanded(
                               child: Text(
-                                'GUÍA DE ENCUADRE PARA MODELO 3D',
+                                'FOTOGRAFÍAS DE TODOS LOS LADOS (360°)',
                                 style: TextStyle(
                                   fontWeight: FontWeight.w800,
                                   fontSize: 12,
@@ -181,20 +181,26 @@ class _ProductFormState extends State<ProductForm> {
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 10, vertical: 4),
                               decoration: BoxDecoration(
-                                color: count > 0 ? Colors.green.shade50 : magenta.withValues(alpha: 0.1),
+                                color: count == 5
+                                    ? Colors.green.shade50
+                                    : (count > 0 ? Colors.amber.shade50 : magenta.withValues(alpha: 0.1)),
                                 borderRadius: BorderRadius.circular(20),
                                 border: Border.all(
-                                  color: count > 0 ? Colors.green.shade300 : magenta.withValues(alpha: 0.3),
+                                  color: count == 5
+                                      ? Colors.green.shade400
+                                      : (count > 0 ? Colors.amber.shade400 : magenta.withValues(alpha: 0.3)),
                                 ),
                               ),
                               child: Text(
-                                count == 0
-                                    ? '1 FOTO MÍNIMA'
+                                count == 5
+                                    ? '5 / 5 COMPLETO'
                                     : '$count / 5 VISTAS',
                                 style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.w800,
-                                  color: count > 0 ? Colors.green.shade800 : magenta,
+                                  color: count == 5
+                                      ? Colors.green.shade800
+                                      : (count > 0 ? Colors.amber.shade900 : magenta),
                                 ),
                               ),
                             ),
@@ -202,7 +208,7 @@ class _ProductFormState extends State<ProductForm> {
                         ),
                         const SizedBox(height: 10),
                         const Text(
-                          'Sube al menos la foto frontal (1). Para que los 6 lados del avatar 3D se rendericen con textura perfecta y colores fieles del producto, agrega más ángulos.',
+                          'Para que el avatar 3D sea idéntico a tu producto real, toma la foto de cada uno de sus lados: Frente, Atrás, Izquierda, Derecha y Arriba. El motor 3D proyectará cada foto sobre su cara correspondiente.',
                           style: TextStyle(fontSize: 12, color: Color(0xff7a5c6b), height: 1.3),
                         ),
                         const SizedBox(height: 14),
@@ -480,12 +486,12 @@ class _ProductFormState extends State<ProductForm> {
           ),
           const SizedBox(height: 4),
           Text(
-            index == 0 ? '1. Frente (*)' : '${index + 1}. ${viewNames[index]}',
+            '${index + 1}. ${viewNames[index]} (*)',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 10,
-              fontWeight: index == 0 ? FontWeight.w800 : FontWeight.w600,
-              color: index == 0 ? magenta : const Color(0xff7a5c6b),
+              fontWeight: FontWeight.w700,
+              color: hasPhoto ? const Color(0xff2e7d32) : (index == 0 ? magenta : const Color(0xff99406b)),
             ),
           ),
         ],
@@ -691,9 +697,59 @@ class _ProductFormState extends State<ProductForm> {
         (current?.imageUrl.isNotEmpty == true);
     if (!hasFrontPhoto) {
       setState(() => photoError =
-          'Toma primero la foto frontal siguiendo las indicaciones.');
+          'Es obligatorio capturar al menos la foto frontal del producto.');
       return;
     }
+
+    // Solicitar fotos de todos los lados para renderizado exacto
+    final missingIndices = <int>[];
+    for (var i = 0; i < 5; i++) {
+      if (photos[i] == null && _getExistingUrl(i).isEmpty) {
+        missingIndices.add(i);
+      }
+    }
+
+    if (missingIndices.isNotEmpty) {
+      final missingNames = missingIndices.map((i) => viewNames[i]).join(', ');
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (dialogCtx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.camera_alt_outlined, color: Color(0xffd94f87)),
+              SizedBox(width: 10),
+              Flexible(child: Text('¿CAPTURAR TODOS LOS LADOS?')),
+            ],
+          ),
+          content: Text(
+            'Para que el modelo 3D quede exactamente igual a tu producto real en todos sus ángulos, se requiere la foto de cada lado.\n\n'
+            'Lados faltantes: $missingNames.\n\n'
+            '¿Deseas capturar las fotos faltantes ahora para un acabado 100% exacto?',
+            style: const TextStyle(height: 1.4),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx, true),
+              child: const Text('CONTINUAR DE TODOS MODOS'),
+            ),
+            FilledButton.icon(
+              onPressed: () => Navigator.pop(dialogCtx, false),
+              icon: const Icon(Icons.add_a_photo_rounded, size: 16),
+              label: const Text('CAPTURAR FALTANTES'),
+            ),
+          ],
+        ),
+      );
+
+      if (proceed != true) {
+        if (missingIndices.isNotEmpty) {
+          _openCameraGuide(missingIndices.first);
+        }
+        return;
+      }
+    }
+    if (!mounted) return;
     if (widget.store.barcodeBelongsToAnotherProduct(
       barcode.text,
       current?.id,
