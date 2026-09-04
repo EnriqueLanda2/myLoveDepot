@@ -49,33 +49,56 @@ def setup_scene(input_file, output_file):
     rot_quat = direction.to_track_quat('-Z', 'Y')
     cam_obj.rotation_euler = rot_quat.to_euler()
 
-    # Setup Lighting (3-point)
+    # Setup Studio Lighting (4-point: Key, Fill, Rim, Top)
     # Key light
     key_light_data = bpy.data.lights.new(name="KeyLight", type='AREA')
-    key_light_data.energy = 500 * (max_dim ** 2)
-    key_light_data.size = max_dim * 2
+    key_light_data.energy = 650 * (max_dim ** 2)
+    key_light_data.size = max_dim * 2.2
+    key_light_data.color = (1.0, 0.98, 0.95)
     key_light_obj = bpy.data.objects.new(name="KeyLight", object_data=key_light_data)
     bpy.context.collection.objects.link(key_light_obj)
-    key_light_obj.location = center + Vector((-max_dim * 2, -max_dim * 2, max_dim * 2))
+    key_light_obj.location = center + Vector((-max_dim * 2.2, -max_dim * 2.2, max_dim * 2.2))
     key_light_obj.rotation_euler = (center - key_light_obj.location).to_track_quat('-Z', 'Y').to_euler()
 
     # Fill light
     fill_light_data = bpy.data.lights.new(name="FillLight", type='AREA')
-    fill_light_data.energy = 200 * (max_dim ** 2)
+    fill_light_data.energy = 300 * (max_dim ** 2)
     fill_light_data.size = max_dim * 3
+    fill_light_data.color = (0.95, 0.98, 1.0)
     fill_light_obj = bpy.data.objects.new(name="FillLight", object_data=fill_light_data)
     bpy.context.collection.objects.link(fill_light_obj)
-    fill_light_obj.location = center + Vector((max_dim * 2, -max_dim, max_dim))
+    fill_light_obj.location = center + Vector((max_dim * 2.2, -max_dim * 1.2, max_dim * 1.2))
     fill_light_obj.rotation_euler = (center - fill_light_obj.location).to_track_quat('-Z', 'Y').to_euler()
 
     # Rim light
     rim_light_data = bpy.data.lights.new(name="RimLight", type='AREA')
-    rim_light_data.energy = 800 * (max_dim ** 2)
+    rim_light_data.energy = 950 * (max_dim ** 2)
     rim_light_data.size = max_dim * 2
+    rim_light_data.color = (1.0, 1.0, 1.0)
     rim_light_obj = bpy.data.objects.new(name="RimLight", object_data=rim_light_data)
     bpy.context.collection.objects.link(rim_light_obj)
-    rim_light_obj.location = center + Vector((0, max_dim * 3, max_dim))
+    rim_light_obj.location = center + Vector((0, max_dim * 3, max_dim * 1.5))
     rim_light_obj.rotation_euler = (center - rim_light_obj.location).to_track_quat('-Z', 'Y').to_euler()
+
+    # Top light (ilumina la boca/borde superior y caras superiores)
+    top_light_data = bpy.data.lights.new(name="TopLight", type='AREA')
+    top_light_data.energy = 450 * (max_dim ** 2)
+    top_light_data.size = max_dim * 2
+    top_light_data.color = (1.0, 0.99, 0.97)
+    top_light_obj = bpy.data.objects.new(name="TopLight", object_data=top_light_data)
+    bpy.context.collection.objects.link(top_light_obj)
+    top_light_obj.location = center + Vector((0, 0, max_dim * 2.6))
+    top_light_obj.rotation_euler = (center - top_light_obj.location).to_track_quat('-Z', 'Y').to_euler()
+
+    # Optimizar brillo y especularidad en materiales importados
+    for mat in bpy.data.materials:
+        if mat.use_nodes and mat.node_tree:
+            for node in mat.node_tree.nodes:
+                if node.type == 'BSDF_PRINCIPLED':
+                    # Si el socket de especular existe, asegurar brillo nítido
+                    spec_input = node.inputs.get('Specular') or node.inputs.get('Specular IOR Level')
+                    if spec_input and spec_input.default_value < 0.5:
+                        spec_input.default_value = 0.65
 
     # Create a shadow catcher floor
     floor_data = bpy.data.meshes.new("Floor")
@@ -83,7 +106,6 @@ def setup_scene(input_file, output_file):
     bpy.context.collection.objects.link(floor_obj)
     bpy.ops.mesh.primitive_plane_add(size=max_dim * 10, location=(center.x, center.y, min_corner.z))
     floor_obj = bpy.context.active_object
-    # Eevee shadow catcher requires specific material setup or use Cycles
     
     # We will use Eevee for speed but set a white background
     bpy.context.scene.render.engine = 'BLENDER_EEVEE_NEXT' if hasattr(bpy.types, 'EEVEE_NEXT_light') else 'BLENDER_EEVEE'

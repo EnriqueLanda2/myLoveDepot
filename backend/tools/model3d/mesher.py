@@ -83,15 +83,28 @@ def surface(occupancy: np.ndarray, dims: tuple[int, int, int],
 
     sigma_val = max(0.5, smoothing * 0.4)
     is_any_round = any(getattr(v, 'is_round', False) for v in views) if views else False
+    is_any_cube = any(getattr(v, 'is_cube', False) for v in views) if views else False
+    is_any_slab = any(getattr(v, 'p', 4.0) >= 4.2 and not getattr(v, 'is_round', False) and not getattr(v, 'is_cube', False) for v in views) if views else False
 
-    if is_any_round:
-        field_data = gaussian_filter(pad_occ.astype(np.float32), sigma=sigma_val)
-    elif views is not None and len(views) == 1:
-        view = views[0]
-        wide_axis, tall_axis = MEASURED_AXES.get(view.index, (0, 1))
-        depth_axis = next(axis for axis in range(3) if axis not in (wide_axis, tall_axis))
+    if is_any_cube:
+        # Cubos: suavizado adecuado para caras lisas continuas y 12 aristas rectas biseladas
+        field_data = gaussian_filter(pad_occ.astype(np.float32), sigma=0.85)
+    elif is_any_slab:
+        # Smartphones y pantallas: plano en pantalla frontal, contorno biselado
+        sigma = [0.55, 0.55, 0.55]
+        if views is not None and len(views) == 1:
+            view = views[0]
+            wide_axis, tall_axis = MEASURED_AXES.get(view.index, (0, 1))
+            depth_axis = next(axis for axis in range(3) if axis not in (wide_axis, tall_axis))
+            sigma[depth_axis] = 0.25
+        field_data = gaussian_filter(pad_occ.astype(np.float32), sigma=tuple(sigma))
+    elif is_any_round:
+        # Vasos, tazas y botellas: suave en circunferencia (X, Z), pero borde de la boca y base nítidos (eje Y)
         sigma = [sigma_val, sigma_val, sigma_val]
-        sigma[depth_axis] = 0.25
+        if views is not None and len(views) == 1:
+            view = views[0]
+            wide_axis, tall_axis = MEASURED_AXES.get(view.index, (0, 1))
+            sigma[tall_axis] = 0.45  # Mantiene base plana y borde de la boca nivelado
         field_data = gaussian_filter(pad_occ.astype(np.float32), sigma=tuple(sigma))
     else:
         field_data = gaussian_filter(pad_occ.astype(np.float32), sigma=sigma_val)
@@ -176,6 +189,8 @@ def _extrusion(view: View, dims: tuple[int, int, int], apply_radial_profile: boo
 
     p = getattr(view, 'p', 4.0)
     is_round = getattr(view, 'is_round', False)
+    is_cube = getattr(view, 'is_cube', False)
+    is_slab = (p >= 4.2 and not is_round and not is_cube)
     max_d = edt.max() if edt.max() > 0 else 1.0
 
     vol_slice = np.zeros((W, H, D), dtype=bool)
@@ -186,11 +201,22 @@ def _extrusion(view: View, dims: tuple[int, int, int], apply_radial_profile: boo
             if d <= 0:
                 continue
 
-            if is_round:
-                # Perfil circular / revolución continuo
-                max_dz = d * scale_z
+            if is_cube:
+                # Cubos y cajas: cara plana frontal/trasera con bisel curvado continuo (sin saltos bruscos)
+                u = min(1.0, d / (max_d * 0.22))
+                bevel = np.sin(u * np.pi * 0.5)
+                max_dz = bevel * ((D - 1) * 0.48)
+            elif is_slab:
+                # Smartphones y pantallas: pantalla plana y borde perimetral biselado continuo
+                u = min(1.0, d / (max_d * 0.20))
+                bevel = np.sin(u * np.pi * 0.5)
+                max_dz = bevel * ((D - 1) * 0.48)
+            elif is_round:
+                # Objetos redondos: perfil circular continuo con tangente suave en silueta (sin aristas de cono)
+                u = min(1.0, d / (max_d * 0.50))
+                circ = np.sqrt(max(0.0, u * (2.0 - u)))
+                max_dz = min(circ * (d * scale_z * 1.05), (D - 1) * 0.48)
             else:
-                # Perfil superelíptico / caja / plano (ej. teléfonos o cubos)
                 norm_d = min(1.0, d / (max_d * 0.45))
                 max_dz = (norm_d ** (1.0 / p)) * (D * 0.48)
 

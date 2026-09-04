@@ -1427,8 +1427,8 @@ class _ModelStage extends StatelessWidget {
               autoRotateDelay: 600,
               cameraControls: true,
               cameraOrbit: '25deg 70deg 105%',
-              shadowIntensity: 0.85,
-              exposure: 1.05,
+              shadowIntensity: 0.65,
+              exposure: 1.15,
               backgroundColor: _Colors.bgDeep,
             );
           },

@@ -203,9 +203,9 @@ def _segment(pixels: np.ndarray) -> np.ndarray | None:
         keep = [i for i in range(1, num + 1) if counts[i] >= 0.12 * max_c]
         fg = np.isin(labels, keep)
 
-    # 5. Preservación topológica de orificios reales (asas de tazas, anillas) vs pantallas sólidas:
-    # Si un hueco interior tiene tamaño moderado (0.8% a 16% del producto) y coincide nítidamente con el fondo (d2 < 12),
-    # se mantiene abierto (como el asa de una taza). Brillos especulares o pantallas se sellan como cuerpo sólido.
+    # 5. Preservación topológica de orificios reales (asas de tazas, anillas) vs cavidades:
+    # Solo se conservan orificios en altura media (20% a 80%), con color de fondo (d2 < 12)
+    # y tamaño moderado (0.8% a 16%), como el asa de una taza.
     fg_filled = binary_fill_holes(fg)
     holes = fg_filled & (~fg)
     hole_labels, num_holes = label(holes)
@@ -215,11 +215,52 @@ def _segment(pixels: np.ndarray) -> np.ndarray | None:
     keep_open = np.zeros_like(holes)
     for h_id in range(1, num_holes + 1):
         ratio = hole_counts[h_id] / float(total_area)
-        hole_d2 = d2[hole_labels == h_id]
-        if 0.008 <= ratio <= 0.16 and np.median(hole_d2) < 12.0:
+        coords = np.where(hole_labels == h_id)
+        y_mean = float(np.mean(coords[0])) / float(height)
+        hole_d2 = d2[coords]
+        if 0.008 <= ratio <= 0.16 and np.median(hole_d2) < 12.0 and (0.18 <= y_mean <= 0.82):
             keep_open |= (hole_labels == h_id)
 
     mask = fg_filled & (~keep_open)
+
+    # 6. Limpieza de bordes: sellado de cavidad superior (boca de taza) y supresión de reflejo en base
+    valid = np.where(mask.any(axis=1))[0]
+    if len(valid) > 20:
+        top_row, bottom_row = int(valid.min()), int(valid.max())
+        H_obj = bottom_row - top_row
+
+        # Rellenar cavidad de la boca superior si es un cuerpo continuo debajo
+        check_offset = min(25, max(8, int(0.12 * H_obj)))
+        for r in range(top_row, int(top_row + 0.20 * H_obj)):
+            cols = np.where(mask[r])[0]
+            if len(cols) > 1:
+                diffs = np.diff(cols)
+                gap_idxs = np.where(diffs > 1)[0]
+                for g_i in gap_idxs:
+                    x1 = cols[g_i] + 1
+                    x2 = cols[g_i + 1] - 1
+                    gap_w = x2 - x1 + 1
+                    mid_gap = (x1 + x2) // 2
+                    below_r = min(height - 1, r + check_offset)
+                    if gap_w < width * 0.40 and mask[below_r, mid_gap]:
+                        if mask[below_r, x1:x2 + 1].all():
+                            mask[r, x1:x2 + 1] = True
+
+        # Eliminar patas y puntas de reflejo especular de mesa debajo de la base sólida
+        widths = [mask[r].sum() for r in range(top_row, bottom_row + 1)]
+        base_ref = float(np.median(widths[-20:-10])) if len(widths) >= 20 else float(widths[-1])
+        for r in range(bottom_row, max(top_row, bottom_row - 20), -1):
+            cols = np.where(mask[r])[0]
+            if len(cols) == 0:
+                continue
+            span = cols[-1] - cols[0] + 1
+            density = len(cols) / float(span)
+            if mask[r].sum() < 0.35 * base_ref or density < 0.65:
+                mask[r, :] = False
+            else:
+                break
+
+    mask = binary_closing(mask, structure=np.ones((5, 5)))
     mask = binary_opening(mask, structure=np.ones((3, 3)))
 
     return mask if mask.mean() >= MIN_COVERAGE else None

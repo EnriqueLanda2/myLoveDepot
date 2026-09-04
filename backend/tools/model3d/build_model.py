@@ -59,7 +59,26 @@ def build(source: Path, destination: Path, resolution: int,
 
     texture = io.BytesIO()
     atlas.image.save(texture, format='JPEG', quality=JPEG_QUALITY, optimize=True)
-    size = write_glb(destination, geometry, texture.getvalue(), 'image/jpeg')
+
+    is_any_round = any(getattr(v, 'is_round', False) for v in views)
+    is_any_cube = any(getattr(v, 'is_cube', False) for v in views)
+    is_any_slab = any(getattr(v, 'p', 4.0) >= 4.2 and not getattr(v, 'is_round', False) and not getattr(v, 'is_cube', False) for v in views)
+
+    if is_any_slab:
+        roughness = 0.18
+        metallic = 0.12
+    elif is_any_round:
+        roughness = 0.22
+        metallic = 0.04
+    elif is_any_cube:
+        roughness = 0.30
+        metallic = 0.02
+    else:
+        roughness = 0.25
+        metallic = 0.04
+
+    size = write_glb(destination, geometry, texture.getvalue(), 'image/jpeg',
+                     roughness_factor=roughness, metallic_factor=metallic)
 
     render_path = destination.with_name('render.png')
     

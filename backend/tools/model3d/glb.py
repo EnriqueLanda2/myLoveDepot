@@ -25,7 +25,9 @@ JSON_CHUNK = 0x4E4F534A
 BINARY_CHUNK = 0x004E4942
 
 
-def write_glb(path: Path, geometry, texture: bytes, mime: str) -> int:
+def write_glb(path: Path, geometry, texture: bytes, mime: str,
+              roughness_factor: float = 0.24,
+              metallic_factor: float = 0.04) -> int:
     positions = np.asarray(geometry.positions, dtype=np.float32)
     normals = np.asarray(geometry.normals, dtype=np.float32)
     uvs = np.asarray(geometry.uvs, dtype=np.float32)
@@ -71,8 +73,8 @@ def write_glb(path: Path, geometry, texture: bytes, mime: str) -> int:
             'name': 'fotografias',
             'pbrMetallicRoughness': {
                 'baseColorTexture': {'index': 0},
-                'metallicFactor': 0.0,
-                'roughnessFactor': 0.9,
+                'metallicFactor': float(metallic_factor),
+                'roughnessFactor': float(roughness_factor),
             },
         }],
         'textures': [{'sampler': 0, 'source': 0}],

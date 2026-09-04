@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageEnhance
 
 from mesher import PROJECTIONS, Projection
 from silhouette import View
@@ -22,6 +22,20 @@ COLUMNS = 3
 ROWS = 2
 NEUTRAL_COLUMN, NEUTRAL_ROW = 2, 1
 FALLBACK_COLOUR = (225, 215, 210)
+
+
+def _enhance_texture(image: Image.Image) -> Image.Image:
+    """Mejora adaptativa de brillo, contraste, viveza y nitidez para texturas 3D."""
+    gray = image.resize((32, 32)).convert('L')
+    avg_luma = float(np.mean(np.asarray(gray)))
+    enhanced = image
+    if avg_luma < 165:
+        boost = min(1.22, max(1.04, 1.0 + (160.0 - avg_luma) / 450.0))
+        enhanced = ImageEnhance.Brightness(enhanced).enhance(boost)
+    enhanced = ImageEnhance.Contrast(enhanced).enhance(1.08)
+    enhanced = ImageEnhance.Color(enhanced).enhance(1.10)
+    enhanced = ImageEnhance.Sharpness(enhanced).enhance(1.15)
+    return enhanced
 
 
 @dataclass(frozen=True)
@@ -85,7 +99,8 @@ class Atlas:
                 crop_to_use = primary_view.crop
 
             if crop_to_use is not None:
-                resized = crop_to_use.resize((TILE, TILE), Image.LANCZOS)
+                enhanced_crop = _enhance_texture(crop_to_use)
+                resized = enhanced_crop.resize((TILE, TILE), Image.LANCZOS)
                 self.image.paste(resized, (column * TILE, row * TILE))
                 self._slots[view_idx] = _PhotoSlot(
                     column=column, row=row, projection=PROJECTIONS[view_idx],
