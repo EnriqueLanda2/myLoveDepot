@@ -116,12 +116,13 @@ def isolate_background(image_path: Path) -> Path:
         with open(image_path, "rb") as f:
             input_data = f.read()
             
+        # Usar u2netp (el modelo ligero de 4.7MB) en vez del u2net normal (170MB)
+        # y desactivar alpha_matting que usa pymatting (calcula grandes matrices en RAM)
+        session = rembg.new_session("u2netp")
         output_data = rembg.remove(
             input_data, 
-            alpha_matting=True,
-            alpha_matting_foreground_threshold=240,
-            alpha_matting_background_threshold=10,
-            alpha_matting_erode_size=10
+            session=session,
+            alpha_matting=False
         )
         
         out_path = image_path.with_suffix('.isolated.png')
