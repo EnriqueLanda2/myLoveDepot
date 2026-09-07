@@ -11,6 +11,7 @@ android/local.properties
 ios/Flutter/ephemeral/
 web/flutter_service_worker.js
 backend/node_modules/
+node_modules/
 backend/dist/
 backend/.env
 .env

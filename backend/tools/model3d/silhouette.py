@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 from scipy.ndimage import (
     binary_closing, binary_erosion, binary_fill_holes, binary_opening,
     distance_transform_edt, gaussian_filter, label
@@ -28,6 +28,7 @@ WORK_SIZE = 384
 BORDER_FRACTION = 0.05
 MIN_DISTANCE = 12.0
 MIN_COVERAGE = 0.015
+ALPHA_THRESHOLD = 16
 
 # Qué par de ejes del modelo mide cada vista: (eje del ancho, eje del alto).
 # 0 Frente, 1 Atrás, 2 Izquierda, 3 Derecha, 4 Arriba. X=0, Y=1, Z=2.
@@ -93,12 +94,30 @@ def _profile_shape(mask: np.ndarray) -> tuple[float, bool, bool]:
 
 
 def load_view(index: int, path: Path) -> View | None:
-    """Devuelve la vista recortada al producto, o None si no se pudo separar."""
+    """Devuelve una vista recortada, usando primero el alfa generado por rembg.
+
+    La segmentación estadística antigua queda como compatibilidad para entradas
+    RGB y para ``--no-rembg``. Una imagen RGBA válida nunca vuelve a pasar por
+    las reglas históricas que rellenaban bocas o eliminaban bases finas.
+    """
     with Image.open(path) as opened:
-        image = opened.convert('RGB')
+        oriented = ImageOps.exif_transpose(opened)
+        rgba = oriented.convert('RGBA')
+        image = oriented.convert('RGB')
     reduced = image.copy()
     reduced.thumbnail((WORK_SIZE, WORK_SIZE), Image.LANCZOS)
-    mask = _segment(np.asarray(reduced, dtype=np.float32))
+
+    alpha = rgba.getchannel('A')
+    alpha.thumbnail(reduced.size, Image.LANCZOS)
+    alpha_values = np.asarray(alpha, dtype=np.uint8)
+    has_foreground_alpha = (
+        alpha_values.min() < 250
+        and MIN_COVERAGE <= (alpha_values >= ALPHA_THRESHOLD).mean() <= 0.985
+    )
+    if has_foreground_alpha:
+        mask = _clean_alpha_mask(alpha_values)
+    else:
+        mask = _segment(np.asarray(reduced, dtype=np.float32))
     if mask is None:
         return None
 
@@ -138,35 +157,74 @@ def load_view(index: int, path: Path) -> View | None:
 
 
 def estimate_extents(views: list[View]) -> tuple[float, float, float]:
-    """Resuelve las proporciones X:Y:Z a partir de las razones de aspecto y perfil geométrico."""
+    """Resuelve X:Y:Z con todas las razones de aspecto independientes.
+
+    En log-espacio, cada foto aporta la ecuación
+    ``log(extent_width) - log(extent_height) = log(aspect)``. Con dos
+    orientaciones distintas el sistema determina las tres dimensiones. Cuando
+    solo existe una orientación, el eje invisible sigue siendo un prior y se
+    marca como aproximado en el reporte del orquestador.
+    """
     front_views = [v for v in views if v.index in (0, 1)]
     primary = front_views[0] if front_views else views[0]
-    wide_axis, tall_axis = MEASURED_AXES.get(primary.index, (0, 1))
+    independent_pairs = {MEASURED_AXES.get(view.index, (0, 1)) for view in views}
 
-    extents = np.ones(3, dtype=np.float64)
-    extents[wide_axis] = primary.aspect
-    extents[tall_axis] = 1.0
-    hidden_axis = next(axis for axis in range(3) if axis not in (wide_axis, tall_axis))
-
-    # Si el usuario subió vista lateral (2: Izquierda o 3: Derecha), medir profundidad real:
-    side_views = [v for v in views if v.index in (2, 3)]
-    if side_views:
-        # La vista lateral mide (Z, Y): su aspecto es directamente el espesor relativo Z / Y
-        depth_factor = float(np.clip(side_views[0].aspect, 0.12, 1.2))
-    elif primary.is_round:
-        depth_factor = 1.0
-    elif primary.is_cube:
-        depth_factor = 1.0
-    elif primary.p >= 4.2: # slab / cartera / teléfono
-        if primary.aspect < 0.70:
-            depth_factor = 0.20 # Teléfono
-        else:
-            depth_factor = float(np.clip(0.28, 0.18, 0.40)) # Cartera / libreta / caja
+    if len(independent_pairs) >= 2:
+        equations: list[list[float]] = []
+        targets: list[float] = []
+        for view in views:
+            wide_axis, tall_axis = MEASURED_AXES.get(view.index, (0, 1))
+            row = [0.0, 0.0, 0.0]
+            row[wide_axis] = 1.0
+            row[tall_axis] = -1.0
+            equations.append(row)
+            targets.append(float(np.log(np.clip(view.aspect, 0.05, 20.0))))
+        # Fija la escala global sin sesgar ninguna dimensión.
+        equations.append([1.0, 1.0, 1.0])
+        targets.append(0.0)
+        solution, *_ = np.linalg.lstsq(
+            np.asarray(equations, dtype=np.float64),
+            np.asarray(targets, dtype=np.float64),
+            rcond=None,
+        )
+        extents = np.exp(solution)
     else:
-        depth_factor = float(np.clip(0.22 + 0.78 * ((primary.aspect - 0.45) / 0.35), 0.22, 1.0))
-
-    extents[hidden_axis] = min(extents[wide_axis], extents[tall_axis]) * depth_factor
+        wide_axis, tall_axis = MEASURED_AXES.get(primary.index, (0, 1))
+        extents = np.ones(3, dtype=np.float64)
+        extents[wide_axis] = primary.aspect
+        extents[tall_axis] = 1.0
+        hidden_axis = next(
+            axis for axis in range(3) if axis not in (wide_axis, tall_axis)
+        )
+        if primary.is_round or primary.is_cube:
+            depth_factor = 1.0
+        elif primary.p >= 4.2:
+            depth_factor = 0.20 if primary.aspect < 0.70 else 0.28
+        else:
+            depth_factor = float(np.clip(
+                0.22 + 0.78 * ((primary.aspect - 0.45) / 0.35),
+                0.22,
+                1.0,
+            ))
+        extents[hidden_axis] = (
+            min(extents[wide_axis], extents[tall_axis]) * depth_factor
+        )
     return tuple(float(value) for value in extents / extents.max())
+
+
+def _clean_alpha_mask(alpha: np.ndarray) -> np.ndarray | None:
+    """Limpia ruido diminuto sin inventar ni rellenar huecos del objeto."""
+    mask = alpha >= ALPHA_THRESHOLD
+    labels, num = label(mask)
+    if num:
+        counts = np.bincount(labels.ravel())
+        largest = int(counts[1:].max())
+        minimum = max(16, round(largest * 0.01))
+        keep = [component for component in range(1, num + 1)
+                if counts[component] >= minimum]
+        mask = np.isin(labels, keep)
+    mask = binary_closing(mask, structure=np.ones((3, 3)))
+    return mask if mask.mean() >= MIN_COVERAGE else None
 
 
 def _segment(pixels: np.ndarray) -> np.ndarray | None:
@@ -212,72 +270,11 @@ def _segment(pixels: np.ndarray) -> np.ndarray | None:
         keep = [i for i in range(1, num + 1) if counts[i] >= 0.12 * max_c]
         fg = np.isin(labels, keep)
 
-    # 5. Preservación topológica de orificios reales (asas de tazas, anillas) vs cavidades:
-    # Solo se conservan orificios en altura media (20% a 80%), con color de fondo (d2 < 12)
-    # y tamaño moderado (0.8% a 16%), como el asa de una taza.
-    fg_filled = binary_fill_holes(fg)
-    holes = fg_filled & (~fg)
-    hole_labels, num_holes = label(holes)
-    hole_counts = np.bincount(hole_labels.ravel())
-    total_area = max(1, fg_filled.sum())
-
-    keep_open = np.zeros_like(holes)
-    fg_x_coords = np.where(fg_filled)[1]
-    fg_x_min, fg_x_max = (float(fg_x_coords.min()), float(fg_x_coords.max())) if len(fg_x_coords) else (0.0, float(width))
-    fg_w = max(1.0, fg_x_max - fg_x_min)
-
-    for h_id in range(1, num_holes + 1):
-        ratio = hole_counts[h_id] / float(total_area)
-        coords = np.where(hole_labels == h_id)
-        y_mean = float(np.mean(coords[0])) / float(height)
-        x_mean = float(np.mean(coords[1]))
-        # Un asa de taza o anilla está situada en los flancos laterales del objeto (al menos 30% lejos del centro)
-        x_rel = (x_mean - fg_x_min) / fg_w
-        is_outer_flank = (x_rel < 0.28 or x_rel > 0.72)
-        hole_d2 = d2[coords]
-        if is_outer_flank and 0.008 <= ratio <= 0.16 and np.median(hole_d2) < 12.0 and (0.18 <= y_mean <= 0.82):
-            keep_open |= (hole_labels == h_id)
-
-    mask = fg_filled & (~keep_open)
-
-    # 6. Limpieza de bordes: sellado de cavidad superior (boca de taza) y supresión de reflejo en base
-    valid = np.where(mask.any(axis=1))[0]
-    if len(valid) > 20:
-        top_row, bottom_row = int(valid.min()), int(valid.max())
-        H_obj = bottom_row - top_row
-
-        # Rellenar cavidad de la boca superior si es un cuerpo continuo debajo
-        check_offset = min(25, max(8, int(0.12 * H_obj)))
-        for r in range(top_row, int(top_row + 0.20 * H_obj)):
-            cols = np.where(mask[r])[0]
-            if len(cols) > 1:
-                diffs = np.diff(cols)
-                gap_idxs = np.where(diffs > 1)[0]
-                for g_i in gap_idxs:
-                    x1 = cols[g_i] + 1
-                    x2 = cols[g_i + 1] - 1
-                    gap_w = x2 - x1 + 1
-                    mid_gap = (x1 + x2) // 2
-                    below_r = min(height - 1, r + check_offset)
-                    if gap_w < width * 0.40 and mask[below_r, mid_gap]:
-                        if mask[below_r, x1:x2 + 1].all():
-                            mask[r, x1:x2 + 1] = True
-
-        # Eliminar patas y puntas de reflejo especular de mesa debajo de la base sólida
-        widths = [mask[r].sum() for r in range(top_row, bottom_row + 1)]
-        base_ref = float(np.median(widths[-20:-10])) if len(widths) >= 20 else float(widths[-1])
-        for r in range(bottom_row, max(top_row, bottom_row - 20), -1):
-            cols = np.where(mask[r])[0]
-            if len(cols) == 0:
-                continue
-            span = cols[-1] - cols[0] + 1
-            density = len(cols) / float(span)
-            if mask[r].sum() < 0.35 * base_ref or density < 0.65:
-                mask[r, :] = False
-            else:
-                break
-
-    mask = binary_closing(mask, structure=np.ones((5, 5)))
+    # 5. Limpieza generalista. No se rellenan cavidades ni se recortan bases:
+    # esas reglas históricas favorecían tazas y destruían patas, ranuras y asas
+    # de otras categorías. Los huecos grandes compatibles con el fondo quedan
+    # abiertos y solo se cierran discontinuidades de pocos píxeles.
+    mask = binary_closing(fg, structure=np.ones((5, 5)))
     mask = binary_opening(mask, structure=np.ones((3, 3)))
 
     return mask if mask.mean() >= MIN_COVERAGE else None

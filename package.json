@@ -1,0 +1,17 @@
+{
+  "name": "my-love-depot-viewer3d",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite viewer3d --host 0.0.0.0",
+    "build": "vite build viewer3d --outDir ../build/viewer3d --emptyOutDir"
+  },
+  "dependencies": {
+    "meshoptimizer": "1.2.0",
+    "three": "0.185.1"
+  },
+  "devDependencies": {
+    "vite": "8.2.2"
+  }
+}

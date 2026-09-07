@@ -1,10 +1,9 @@
 """Empaqueta las vistas recortadas en una sola textura y resuelve sus UV.
 
-Cada cara del modelo se texturiza con la fotografía que la mira de frente,
-proyectada ortogonalmente. Si falta alguna vista (por ejemplo, si el usuario solo
-subió la foto frontal), la vista faltante se sintetiza inteligentemente usando la
-vista frontal o la opuesta volteada, y los bordes neutros se rellenan con el color
-dominante del producto para evitar caras grises.
+Cada cara se texturiza solo con la fotografía que realmente la observó,
+proyectada ortogonalmente. Las vistas ausentes usan un color neutro muestreado
+del producto: copiar o reflejar la frontal inventa logotipos, asas, costuras y
+reflejos en superficies que la cámara nunca vio.
 """
 
 from __future__ import annotations
@@ -12,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-from PIL import Image, ImageEnhance
+from PIL import Image
 
 from mesher import PROJECTIONS, Projection
 from silhouette import View
@@ -25,23 +24,9 @@ FALLBACK_COLOUR = (225, 215, 210)
 PADDING = 4  # Px de padding para evitar costuras de textura
 
 
-def _enhance_texture(image: Image.Image) -> Image.Image:
-    """Mejora adaptativa de brillo, contraste, viveza y nitidez para texturas 3D."""
-    gray = image.resize((32, 32)).convert('L')
-    avg_luma = float(np.mean(np.asarray(gray)))
-    enhanced = image
-    if avg_luma < 165:
-        boost = min(1.22, max(1.04, 1.0 + (160.0 - avg_luma) / 450.0))
-        enhanced = ImageEnhance.Brightness(enhanced).enhance(boost)
-    enhanced = ImageEnhance.Contrast(enhanced).enhance(1.08)
-    enhanced = ImageEnhance.Color(enhanced).enhance(1.10)
-    enhanced = ImageEnhance.Sharpness(enhanced).enhance(1.15)
-    return enhanced
-
-
 @dataclass(frozen=True)
 class _PhotoSlot:
-    """Celda del atlas ocupada por una fotografía real o sintetizada."""
+    """Celda del atlas ocupada por una fotografía real."""
 
     column: int
     row: int
@@ -77,31 +62,16 @@ class Atlas:
         self._slots: dict[int, _PhotoSlot] = {}
 
         view_by_index: dict[int, View] = {view.index: view for view in views}
-        primary_view = views[0] if views else None
-
-        # Para cada una de las 5 vistas posibles (0:Frente, 1:Atrás, 2:Izq, 3:Der, 4:Arriba)
+        # Cinco vistas posibles: frente, atrás, izquierda, derecha y arriba.
         for view_idx in range(5):
             column, row = view_idx % COLUMNS, view_idx // COLUMNS
-            crop_to_use: Image.Image | None = None
-
-            if view_idx in view_by_index:
-                crop_to_use = view_by_index[view_idx].crop
-            elif view_idx == 1 and 0 in view_by_index:
-                # Atrás: si falta, usar la frontal volteada horizontalmente
-                crop_to_use = view_by_index[0].crop.transpose(Image.FLIP_LEFT_RIGHT)
-            elif view_idx == 2 and 3 in view_by_index:
-                # Izquierda: si falta, usar derecha
-                crop_to_use = view_by_index[3].crop.transpose(Image.FLIP_LEFT_RIGHT)
-            elif view_idx == 3 and 2 in view_by_index:
-                # Derecha: si falta, usar izquierda
-                crop_to_use = view_by_index[2].crop.transpose(Image.FLIP_LEFT_RIGHT)
-            elif primary_view is not None:
-                # Cualquier otra vista faltante: usar la vista principal
-                crop_to_use = primary_view.crop
-
-            if crop_to_use is not None:
-                enhanced_crop = _enhance_texture(crop_to_use)
-                resized = enhanced_crop.resize((TILE, TILE), Image.LANCZOS)
+            view = view_by_index.get(view_idx)
+            if view is not None:
+                # Conservar el color capturado. Alterarlo aquí hornearía la luz
+                # en el albedo y haría imposible igualar la foto mediante PBR.
+                resized = view.crop.convert('RGB').resize(
+                    (TILE, TILE), Image.LANCZOS,
+                )
                 # Aplicar padding: replicar bordes para evitar costuras de textura
                 padded = _apply_tile_padding(resized)
                 self.image.paste(padded, (column * TILE, row * TILE))
