@@ -29,7 +29,8 @@ from silhouette import estimate_extents, load_view
 try:
     import rembg
     HAS_REMBG = True
-except ImportError:
+except BaseException as e:
+    print(f"rembg import failed: {e}", file=sys.stderr)
     HAS_REMBG = False
 
 try:
@@ -45,7 +46,8 @@ try:
         clearcoat: float = Field(description="Nivel de barniz/esmalte (clearcoat) de 0.0 a 1.0")
         transmission: float = Field(description="Nivel de transparencia/transmisión de 0.0 a 1.0")
         
-except ImportError:
+except Exception as e:
+    print(f"gemini import failed: {e}", file=sys.stderr)
     HAS_GEMINI = False
 
 
