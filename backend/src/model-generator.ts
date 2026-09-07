@@ -111,7 +111,9 @@ function runPython(workspace: string) {
         return;
       }
       try {
-        resolve(JSON.parse(stdout) as ModelReport);
+        const startIndex = stdout.indexOf('{');
+        if (startIndex === -1) throw new Error('JSON no encontrado');
+        resolve(JSON.parse(stdout.substring(startIndex)) as ModelReport);
       } catch {
         reject(new ModelBuildError('El generador devolvió una respuesta ilegible.'));
       }
