@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+  <meta name="description" content="Visor 3D Fotorrealista — Renderizado PBR con iluminación HDRI en tiempo real para PC, tablets y smartphones">
+  <meta name="theme-color" content="#0b0d12">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Visor 3D Fotorrealista — My Love Depot</title>
+
+  <!-- Google Fonts: Inter (UI) + JetBrains Mono (metrics) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+
+  <!-- Three.js Import Map (ES Modules, CDN, MIT License) -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <link rel="stylesheet" href="viewer3d.css">
+</head>
+<body>
+
+  <!-- ═══ Loading Overlay ═══════════════════════════════════════════════════ -->
+  <div id="loading-overlay">
+    <div class="loading-spinner"></div>
+    <p class="loading-text" id="loading-text">Inicializando motor 3D…</p>
+    <div class="loading-progress">
+      <div class="loading-progress-bar" id="loading-progress"></div>
+    </div>
+  </div>
+
+  <!-- ═══ WebGL Canvas Mount Point ══════════════════════════════════════════ -->
+  <div id="viewer-canvas"></div>
+
+  <!-- ═══ Header Bar ════════════════════════════════════════════════════════ -->
+  <header id="header-bar" class="glass-card">
+    <div class="header-title">
+      <span class="icon">🎨</span>
+      Visor 3D Fotorrealista
+      <span class="badge badge-pbr">PBR</span>
+      <span class="badge badge-tier" id="badge-tier">AUTO</span>
+    </div>
+    <p class="header-subtitle" id="header-subtitle">Arrastra un archivo .glb o usa el parámetro ?model=URL</p>
+  </header>
+
+  <!-- ═══ Mobile Controls Toggle ════════════════════════════════════════════ -->
+  <button id="mobile-controls-toggle" class="glass-card btn-icon" aria-label="Toggle controls">
+    ⚙️
+  </button>
+
+  <!-- ═══ Controls Panel (right side) ═══════════════════════════════════════ -->
+  <aside id="controls-panel" class="glass-card">
+
+    <!-- Quality -->
+    <div>
+      <div class="section-label">Calidad de Renderizado</div>
+      <div class="btn-group">
+        <button class="btn" data-quality="high" id="btn-quality-high">✨ Alta</button>
+        <button class="btn" data-quality="medium" id="btn-quality-medium">⚡ Media</button>
+        <button class="btn" data-quality="low" id="btn-quality-low">🔋 Baja</button>
+      </div>
+      <div class="btn-group" style="margin-top: 6px;">
+        <button class="btn btn-active" data-quality="auto" id="btn-quality-auto">🤖 Auto</button>
+      </div>
+    </div>
+
+    <!-- Lighting Environment -->
+    <div>
+      <div class="section-label">Iluminación HDRI</div>
+      <div class="btn-group">
+        <button class="btn btn-active" data-env="studio" id="btn-env-studio">🎬 Estudio</button>
+        <button class="btn" data-env="sunset" id="btn-env-sunset">🌅 Atardecer</button>
+        <button class="btn" data-env="neutral" id="btn-env-neutral">🌤️ Neutral</button>
+      </div>
+    </div>
+
+    <!-- Exposure -->
+    <div>
+      <div class="section-label">Exposición</div>
+      <div class="slider-row">
+        <span class="slider-label">Brillo</span>
+        <span class="slider-value" id="exposure-value">1.0</span>
+      </div>
+      <input type="range" id="slider-exposure" min="0.3" max="2.5" step="0.05" value="1.0">
+    </div>
+
+    <!-- View Options -->
+    <div>
+      <div class="section-label">Visualización</div>
+      <div class="btn-group">
+        <button class="btn" id="btn-wireframe">🔲 Wireframe</button>
+        <button class="btn btn-active" id="btn-autorotate">🔄 Auto-Rotar</button>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div>
+      <div class="section-label">Acciones</div>
+      <div class="btn-group">
+        <button class="btn btn-primary" id="btn-screenshot">📸 Captura</button>
+        <button class="btn" id="btn-reset-cam">🎯 Reset Cam</button>
+      </div>
+    </div>
+
+    <!-- Load Model -->
+    <div>
+      <div class="section-label">Cargar Modelo</div>
+      <label class="btn" style="width: 100%; cursor: pointer;" id="btn-load-file">
+        📂 Abrir archivo GLB
+        <input type="file" id="file-input" accept=".glb,.gltf" style="display: none;">
+      </label>
+    </div>
+  </aside>
+
+  <!-- ═══ Bottom Metrics Bar ════════════════════════════════════════════════ -->
+  <footer id="metrics-bar" class="glass-card">
+    <div class="metric">
+      <span class="metric-label">FPS</span>
+      <span class="metric-value" id="metric-fps">
+        <span class="status-dot status-dot-good" id="fps-dot"></span>
+        <span id="fps-num">60</span>
+      </span>
+    </div>
+    <div class="metric">
+      <span class="metric-label">Triángulos</span>
+      <span class="metric-value" id="metric-triangles">—</span>
+    </div>
+    <div class="metric">
+      <span class="metric-label">Materiales</span>
+      <span class="metric-value" id="metric-materials">—</span>
+    </div>
+    <div class="metric">
+      <span class="metric-label">GPU</span>
+      <span class="metric-value" id="metric-gpu">Detectando…</span>
+    </div>
+    <div class="metric">
+      <span class="metric-label">Calidad</span>
+      <span class="metric-value" id="metric-tier">Auto</span>
+    </div>
+  </footer>
+
+  <!-- ═══ Drag & Drop Overlay ═══════════════════════════════════════════════ -->
+  <div id="drop-overlay">
+    <div class="drop-zone">
+      <span class="icon">📦</span>
+      <span>Suelta tu archivo .glb aquí</span>
+    </div>
+  </div>
+
+  <!-- ═══ Toast ═════════════════════════════════════════════════════════════ -->
+  <div class="toast" id="toast"></div>
+
+  <!-- ═══ Application Logic ═════════════════════════════════════════════════ -->
+  <script type="module">
+    import { PhotorealisticViewer } from './viewer3d.js';
+
+    // ─── Initialize Viewer ──────────────────────────────────────────────────
+    const container = document.getElementById('viewer-canvas');
+    const params = new URLSearchParams(window.location.search);
+    const modelUrl = params.get('model') || '';
+    const envPreset = params.get('env') || 'studio';
+    const quality = params.get('quality') || 'auto';
+
+    const viewer = new PhotorealisticViewer(container, {
+      modelUrl: modelUrl,
+      environmentPreset: envPreset,
+      autoRotate: true,
+      forceTier: quality,
+    });
+
+    // Make viewer accessible globally for debugging
+    window.viewer = viewer;
+
+    // ─── UI References ──────────────────────────────────────────────────────
+    const loadingOverlay = document.getElementById('loading-overlay');
+    const loadingText = document.getElementById('loading-text');
+    const loadingProgress = document.getElementById('loading-progress');
+    const headerSubtitle = document.getElementById('header-subtitle');
+    const badgeTier = document.getElementById('badge-tier');
+    const toastEl = document.getElementById('toast');
+    const dropOverlay = document.getElementById('drop-overlay');
+
+    // Metrics
+    const fpsNum = document.getElementById('fps-num');
+    const fpsDot = document.getElementById('fps-dot');
+    const metricTriangles = document.getElementById('metric-triangles');
+    const metricMaterials = document.getElementById('metric-materials');
+    const metricGpu = document.getElementById('metric-gpu');
+    const metricTier = document.getElementById('metric-tier');
+
+    // ─── Toast Helper (must be defined early — used during init) ─────────────
+    let toastTimer = null;
+    function showToast(message) {
+      toastEl.textContent = message;
+      toastEl.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        toastEl.classList.remove('show');
+      }, 2500);
+    }
+
+    // ─── Quality & Highlight (must be defined early — used during init) ──────
+    const qualityBtns = document.querySelectorAll('[data-quality]');
+    function highlightActiveQuality(active) {
+      qualityBtns.forEach(b => {
+        b.classList.toggle('btn-active', b.dataset.quality === active);
+      });
+    }
+
+    // ─── Load Model ─────────────────────────────────────────────────────────
+    async function loadModelFromUrl(url) {
+      loadingOverlay.classList.remove('hidden');
+      loadingText.textContent = 'Descargando modelo 3D…';
+      loadingProgress.style.width = '0%';
+
+      try {
+        await viewer.loadModel(url, (pct) => {
+          loadingProgress.style.width = `${pct}%`;
+          loadingText.textContent = `Cargando modelo… ${pct}%`;
+        });
+
+        loadingText.textContent = 'Configurando materiales PBR…';
+        loadingProgress.style.width = '100%';
+
+        // Short delay for visual polish
+        await new Promise(r => setTimeout(r, 400));
+
+        loadingOverlay.classList.add('hidden');
+        updateModelInfo();
+        showToast('✅ Modelo cargado con éxito');
+        headerSubtitle.textContent = url.split('/').pop() || 'Modelo cargado';
+      } catch (error) {
+        loadingOverlay.classList.add('hidden');
+        showToast(`❌ Error: ${error.message}`);
+        console.error('[Viewer3D]', error);
+      }
+    }
+
+    // Load from URL parameter if present
+    if (modelUrl) {
+      loadModelFromUrl(modelUrl);
+    } else {
+      // Show "ready" state after a brief init
+      setTimeout(() => {
+        loadingOverlay.classList.add('hidden');
+        showToast('Arrastra un archivo .glb o usa ?model=URL');
+      }, 800);
+    }
+
+    // ─── GPU Info (show once ready) ─────────────────────────────────────────
+    const diag = viewer.diagnostics;
+    metricGpu.textContent = truncateGPU(diag.gpu);
+    metricTier.textContent = diag.currentTier.toUpperCase();
+    badgeTier.textContent = diag.currentTier.toUpperCase();
+    highlightActiveQuality(diag.currentTier);
+
+    function truncateGPU(name) {
+      if (!name || name === 'Unknown') return 'WebGL';
+      // Keep just the model name, not the full driver string
+      const match = name.match(/(NVIDIA|AMD|Apple|Adreno|Mali|Intel|Qualcomm)[^\(]*/i);
+      return match ? match[0].trim().substring(0, 28) : name.substring(0, 28);
+    }
+
+    // ─── FPS Counter (update every 500ms) ───────────────────────────────────
+    setInterval(() => {
+      const fps = viewer.perfManager.fps;
+      fpsNum.textContent = fps;
+
+      fpsDot.className = 'status-dot ' + (
+        fps >= 50 ? 'status-dot-good' :
+        fps >= 30 ? 'status-dot-warn' :
+        'status-dot-bad'
+      );
+
+      // Update tier badge in case auto-adjust changed it
+      const tier = viewer.perfManager.currentTier;
+      metricTier.textContent = tier.toUpperCase();
+      badgeTier.textContent = tier.toUpperCase();
+    }, 500);
+
+    // ─── Update Model Info ──────────────────────────────────────────────────
+    function updateModelInfo() {
+      const info = viewer.modelInfo;
+      metricTriangles.textContent = info.triangles.toLocaleString();
+      metricMaterials.textContent = `${info.materials} mat / ${info.meshes} mesh`;
+    }
+
+    // ─── Quality Button Listeners ────────────────────────────────────────────
+    qualityBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const q = btn.dataset.quality;
+        if (q === 'auto') {
+          viewer.perfManager.autoAdjust = true;
+          viewer.perfManager.setTier(viewer.perfManager.gpuInfo.tier);
+        } else {
+          viewer.perfManager.autoAdjust = false;
+          viewer.setQuality(q);
+        }
+        highlightActiveQuality(q);
+        showToast(`Calidad: ${q.toUpperCase()}`);
+      });
+    });
+
+    // ─── Environment Buttons ────────────────────────────────────────────────
+    const envBtns = document.querySelectorAll('[data-env]');
+    envBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const env = btn.dataset.env;
+        viewer.setEnvironment(env);
+        envBtns.forEach(b => b.classList.toggle('btn-active', b.dataset.env === env));
+        showToast(`Iluminación: ${env}`);
+      });
+    });
+
+    // ─── Exposure Slider ────────────────────────────────────────────────────
+    const sliderExposure = document.getElementById('slider-exposure');
+    const exposureValue = document.getElementById('exposure-value');
+    sliderExposure.addEventListener('input', (e) => {
+      const val = parseFloat(e.target.value);
+      viewer.setExposure(val);
+      exposureValue.textContent = val.toFixed(2);
+    });
+
+    // ─── Wireframe Toggle ───────────────────────────────────────────────────
+    let wireframeOn = false;
+    const btnWireframe = document.getElementById('btn-wireframe');
+    btnWireframe.addEventListener('click', () => {
+      wireframeOn = !wireframeOn;
+      viewer.setWireframe(wireframeOn);
+      btnWireframe.classList.toggle('btn-active', wireframeOn);
+    });
+
+    // ─── Auto-Rotate Toggle ─────────────────────────────────────────────────
+    let autoRotateOn = true;
+    const btnAutoRotate = document.getElementById('btn-autorotate');
+    btnAutoRotate.addEventListener('click', () => {
+      autoRotateOn = !autoRotateOn;
+      viewer.setAutoRotate(autoRotateOn);
+      btnAutoRotate.classList.toggle('btn-active', autoRotateOn);
+    });
+
+    // ─── Screenshot ─────────────────────────────────────────────────────────
+    document.getElementById('btn-screenshot').addEventListener('click', () => {
+      // Flash effect
+      const flash = document.createElement('div');
+      flash.className = 'screenshot-flash';
+      document.body.appendChild(flash);
+      flash.addEventListener('animationend', () => flash.remove());
+
+      viewer.captureScreenshot('my-love-depot-3d-render.png');
+      showToast('📸 Captura guardada');
+    });
+
+    // ─── Reset Camera ───────────────────────────────────────────────────────
+    document.getElementById('btn-reset-cam').addEventListener('click', () => {
+      viewer.resetCamera();
+      showToast('🎯 Cámara reiniciada');
+    });
+
+    // ─── File Input (load local GLB) ────────────────────────────────────────
+    document.getElementById('file-input').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const url = URL.createObjectURL(file);
+      await loadModelFromUrl(url);
+      headerSubtitle.textContent = file.name;
+    });
+
+    // ─── Drag & Drop ────────────────────────────────────────────────────────
+    let dragCounter = 0;
+
+    document.addEventListener('dragenter', (e) => {
+      e.preventDefault();
+      dragCounter++;
+      dropOverlay.classList.add('active');
+    });
+
+    document.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      dragCounter--;
+      if (dragCounter <= 0) {
+        dropOverlay.classList.remove('active');
+        dragCounter = 0;
+      }
+    });
+
+    document.addEventListener('dragover', (e) => {
+      e.preventDefault();
+    });
+
+    document.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      dragCounter = 0;
+      dropOverlay.classList.remove('active');
+
+      const file = e.dataTransfer.files[0];
+      if (file && (file.name.endsWith('.glb') || file.name.endsWith('.gltf'))) {
+        const url = URL.createObjectURL(file);
+        await loadModelFromUrl(url);
+        headerSubtitle.textContent = file.name;
+      } else {
+        showToast('⚠️ Solo se aceptan archivos .glb o .gltf');
+      }
+    });
+
+    // ─── Mobile Controls Toggle ─────────────────────────────────────────────
+    const controlsPanel = document.getElementById('controls-panel');
+    const mobileToggle = document.getElementById('mobile-controls-toggle');
+    let controlsOpen = false;
+
+    mobileToggle.addEventListener('click', () => {
+      controlsOpen = !controlsOpen;
+      controlsPanel.classList.toggle('open', controlsOpen);
+      mobileToggle.textContent = controlsOpen ? '✕' : '⚙️';
+    });
+
+    // Close controls when clicking outside on mobile
+    document.addEventListener('click', (e) => {
+      if (window.innerWidth <= 600 && controlsOpen &&
+          !controlsPanel.contains(e.target) &&
+          !mobileToggle.contains(e.target)) {
+        controlsOpen = false;
+        controlsPanel.classList.remove('open');
+        mobileToggle.textContent = '⚙️';
+      }
+    });
+
+    // (Toast helper moved to top of script for initialization order)
+
+    // ─── Viewer UI update callback ──────────────────────────────────────────
+    viewer.onUIUpdate = () => {
+      const tier = viewer.perfManager.currentTier;
+      metricTier.textContent = tier.toUpperCase();
+      badgeTier.textContent = tier.toUpperCase();
+      highlightActiveQuality(tier);
+    };
+
+    // ─── Keyboard shortcuts ─────────────────────────────────────────────────
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'r' || e.key === 'R') {
+        viewer.resetCamera();
+      } else if (e.key === 'w' || e.key === 'W') {
+        wireframeOn = !wireframeOn;
+        viewer.setWireframe(wireframeOn);
+        btnWireframe.classList.toggle('btn-active', wireframeOn);
+      } else if (e.key === 's' || e.key === 'S') {
+        viewer.captureScreenshot();
+      } else if (e.key === ' ') {
+        e.preventDefault();
+        autoRotateOn = !autoRotateOn;
+        viewer.setAutoRotate(autoRotateOn);
+        btnAutoRotate.classList.toggle('btn-active', autoRotateOn);
+      }
+    });
+  </script>
+</body>
+</html>
