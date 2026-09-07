@@ -111,10 +111,9 @@ def carve(views: list[View], extents: tuple[float, float, float],
         hole_sdf = np.clip(margin_hole + 0.5, 0.0, 1.0)
         
         # Combinar el SDF del hueco con la ocupancia general (solo si estamos arriba de la base)
-        # Donde y <= base_thickness, hole_sdf = 1.0 (no afecta)
-        # Donde y > base_thickness, hole_sdf recorta el cilindro
-        modifier = np.ones_like(occupancy)
-        modifier[y > base_thickness] = hole_sdf[y > base_thickness]
+        # Donde y <= base_thickness, se mantiene 1.0 (no afecta)
+        # Donde y > base_thickness, aplica hole_sdf recorta el cilindro
+        modifier = np.where(y > base_thickness, hole_sdf, 1.0)
         
         occupancy = np.minimum(occupancy, modifier)
         
