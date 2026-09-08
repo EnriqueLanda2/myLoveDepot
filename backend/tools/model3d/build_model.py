@@ -14,24 +14,18 @@ registrar qué vistas se aprovecharon.
 from __future__ import annotations
 
 import argparse
+import gc
 import io
 import json
 import sys
 import os
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 
 from atlas import Atlas
 from glb import write_glb
 from mesher import carve, surface
 from silhouette import estimate_extents, load_view
-
-try:
-    import rembg
-    HAS_REMBG = True
-except BaseException as e:
-    print(f"rembg import failed: {e}", file=sys.stderr)
-    HAS_REMBG = False
 
 try:
     import google.generativeai as genai
@@ -52,9 +46,9 @@ except Exception as e:
 
 
 VIEW_COUNT = 5
-DEFAULT_RESOLUTION = 96
+DEFAULT_RESOLUTION = 48
 DEFAULT_SMOOTHING = 3
-JPEG_QUALITY = 90
+JPEG_QUALITY = 88
 
 
 def extract_pbr_with_gemini(image_data: bytes) -> Dict[str, Any]:
@@ -107,52 +101,17 @@ def extract_pbr_with_gemini(image_data: bytes) -> Dict[str, Any]:
         print(f"Error inferiendo PBR con Gemini: {e}", file=sys.stderr)
         return {}
 
-def isolate_background(image_path: Path) -> Path:
-    """Usa rembg para aislar perfectamente el producto y guarda un PNG con alpha."""
-    if not HAS_REMBG:
-        return image_path
-        
-    try:
-        with open(image_path, "rb") as f:
-            input_data = f.read()
-            
-        # Usar u2netp (el modelo ligero de 4.7MB) en vez del u2net normal (170MB)
-        # y desactivar alpha_matting que usa pymatting (calcula grandes matrices en RAM)
-        session = rembg.new_session("u2netp")
-        output_data = rembg.remove(
-            input_data, 
-            session=session,
-            alpha_matting=False
-        )
-        
-        out_path = image_path.with_suffix('.isolated.png')
-        with open(out_path, "wb") as f:
-            f.write(output_data)
-        return out_path
-    except Exception as e:
-        print(f"Error en rembg para {image_path}: {e}", file=sys.stderr)
-        return image_path
 
 def build(source: Path, destination: Path, resolution: int,
           smoothing: int) -> dict:
+    # ── Stage 1: Load views ──────────────────────────────────────────────────
     views = []
     skipped = []
     for index in range(VIEW_COUNT):
         candidates = sorted(source.glob(f'view-{index}.*'))
         if not candidates:
             continue
-            
-        # Omitir archivos ya procesados si se corre varias veces
-        candidates = [c for c in candidates if not c.name.endswith('.isolated.png')]
-        if not candidates:
-            continue
-            
-        original_path = candidates[0]
-        
-        # Aislar objeto con IA antes de cargar
-        isolated_path = isolate_background(original_path)
-        
-        view = load_view(index, isolated_path)
+        view = load_view(index, candidates[0])
         if view is None:
             skipped.append(index)
         else:
@@ -164,31 +123,42 @@ def build(source: Path, destination: Path, resolution: int,
             'Usa un fondo liso y que contraste con el producto.',
         )
 
-    # Inferencia PBR Inteligente y Semántica (Director de Arte)
-    # Extraer características antes del tallado para guiar la geometría (Semantic Carving)
+    # ── Stage 2: Gemini PBR inference ────────────────────────────────────────
     pbr_metadata = {}
     if views and HAS_GEMINI:
         try:
             primary_view_img = io.BytesIO()
             views[0].crop.save(primary_view_img, format='PNG')
             pbr_metadata = extract_pbr_with_gemini(primary_view_img.getvalue())
+            del primary_view_img
             print(f"Gemini Semantic Inference: {pbr_metadata}", file=sys.stderr)
         except Exception as e:
             print(f"Fallo en orquestación semántica: {e}", file=sys.stderr)
 
     semantic_category = pbr_metadata.get('objectType', 'unknown').lower()
 
+    # ── Stage 3: Carve volume ────────────────────────────────────────────────
     extents = estimate_extents(views)
     occupancy, dims = carve(views, extents, resolution, semantic_category=semantic_category)
+
+    # Force GC after carving — the SDF intermediates can be large
+    gc.collect()
+
+    # ── Stage 4: Surface extraction ──────────────────────────────────────────
     atlas = Atlas(views)
     geometry = surface(occupancy, dims, extents, atlas, smoothing, views=views)
 
-    import subprocess
+    # Free the voxel grid before writing GLB
+    del occupancy
+    gc.collect()
 
+    # ── Stage 5: Write GLB ───────────────────────────────────────────────────
     texture = io.BytesIO()
     atlas.image.save(texture, format='JPEG', quality=JPEG_QUALITY, optimize=True)
 
-    # La inferencia ya se realizó antes del tallado.
+    # Free the atlas image
+    del atlas
+    gc.collect()
 
     # Fallback heurístico si falla Gemini
     is_any_round = any(getattr(v, 'is_round', False) for v in views)
@@ -221,17 +191,6 @@ def build(source: Path, destination: Path, resolution: int,
         pbr_metadata=pbr_metadata
     )
 
-    render_path = destination.with_name('render.png')
-    
-    try:
-        subprocess.run([
-            'blender', '-b', '-P', str(Path(__file__).parent / 'render_studio.py'),
-            '--', '--input', str(destination), '--output', str(render_path)
-        ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        render_size = render_path.stat().st_size if render_path.exists() else 0
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        render_size = 0
-
     return {
         'views': [view.index for view in views],
         'skippedViews': skipped,
@@ -239,7 +198,6 @@ def build(source: Path, destination: Path, resolution: int,
         'extents': [round(value, 4) for value in extents],
         'triangles': len(geometry.indices) // 3,
         'bytes': size,
-        'render_bytes': render_size,
     }
 
 

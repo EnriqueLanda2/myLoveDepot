@@ -4,6 +4,9 @@ Una foto ortogonal no contiene profundidad, pero sí contiene una silueta: el
 contorno exacto del producto visto desde ese lado. Esa silueta es la única
 información geométrica real que aporta la imagen, y es la que alimenta el
 tallado del casco visual en `mesher`.
+
+Optimizado para baja memoria: WORK_SIZE reducido, edge bleeding en copia
+reducida, cálculos en float32.
 """
 
 from __future__ import annotations
@@ -23,12 +26,15 @@ from skimage.color import rgb2gray
 from skimage.filters import sobel
 
 # La silueta se calcula sobre una copia reducida: el tallado trabaja con rejillas
-# de ~70 vóxeles por lado, así que más resolución solo costaría tiempo.
-WORK_SIZE = 384
+# de ~48 vóxeles por lado, así que 256px es más que suficiente.
+WORK_SIZE = 256
 BORDER_FRACTION = 0.05
 MIN_DISTANCE = 12.0
 MIN_COVERAGE = 0.015
 ALPHA_THRESHOLD = 16
+
+# Tamaño máximo para el edge bleeding (evita asignar arrays int64 enormes)
+BLEED_MAX_SIZE = 512
 
 # Qué par de ejes del modelo mide cada vista: (eje del ancho, eje del alto).
 # 0 Frente, 1 Atrás, 2 Izquierda, 3 Derecha, 4 Arriba. X=0, Y=1, Z=2.
@@ -94,11 +100,10 @@ def _profile_shape(mask: np.ndarray) -> tuple[float, bool, bool]:
 
 
 def load_view(index: int, path: Path) -> View | None:
-    """Devuelve una vista recortada, usando primero el alfa generado por rembg.
+    """Devuelve una vista recortada, usando primero el alfa si existe.
 
-    La segmentación estadística antigua queda como compatibilidad para entradas
-    RGB y para ``--no-rembg``. Una imagen RGBA válida nunca vuelve a pasar por
-    las reglas históricas que rellenaban bocas o eliminaban bases finas.
+    La segmentación estadística queda como compatibilidad para entradas RGB.
+    Una imagen RGBA válida nunca vuelve a pasar por las reglas históricas.
     """
     with Image.open(path) as opened:
         oriented = ImageOps.exif_transpose(opened)
@@ -133,17 +138,10 @@ def load_view(index: int, path: Path) -> View | None:
     ))
     cropped_mask = mask[top:bottom, left:right]
 
-    # Sangrado de bordes (Edge Bleeding) con EDT:
-    # Reemplaza cualquier píxel del fondo (fuera de la máscara) por el color del borde del producto.
-    # Así, si el producto fue fotografiado sobre una manta azul, mantel o madera,
-    # el color del fondo NUNCA aparecerá en los bordes del modelo 3D.
-    mask_full = np.asarray(Image.fromarray((cropped_mask * 255).astype(np.uint8)).resize(crop.size, Image.BILINEAR)) > 128
-    eroded_mask = binary_erosion(mask_full, structure=np.ones((5, 5)))
-    if eroded_mask.any():
-        crop_arr = np.asarray(crop)
-        _, nearest_idx = distance_transform_edt(~eroded_mask, return_indices=True)
-        clean_arr = crop_arr[nearest_idx[0], nearest_idx[1]]
-        crop = Image.fromarray(clean_arr)
+    # Sangrado de bordes (Edge Bleeding) con EDT — versión de baja memoria.
+    # Trabaja sobre una copia reducida (max 512px) para evitar asignar arrays
+    # int64 del tamaño de la imagen original (que pueden costar ~40 MB).
+    crop = _edge_bleed_lowmem(crop, cropped_mask)
 
     p, is_round, is_cube = _profile_shape(cropped_mask)
     return View(
@@ -154,6 +152,42 @@ def load_view(index: int, path: Path) -> View | None:
         is_round=is_round,
         is_cube=is_cube,
     )
+
+
+def _edge_bleed_lowmem(crop: Image.Image, cropped_mask: np.ndarray) -> Image.Image:
+    """Sangrado de bordes en resolución reducida para ahorrar memoria.
+
+    En vez de correr la EDT sobre la imagen completa (que crea 2× int64 arrays
+    de width×height), se reduce a max BLEED_MAX_SIZE px, se aplica el sangrado,
+    y se vuelve a escalar.
+    """
+    orig_w, orig_h = crop.size
+
+    # Calcular tamaño de trabajo
+    scale = min(1.0, BLEED_MAX_SIZE / max(orig_w, orig_h))
+    work_w = max(4, round(orig_w * scale))
+    work_h = max(4, round(orig_h * scale))
+
+    # Reducir crop y mask a tamaño de trabajo
+    crop_small = crop.resize((work_w, work_h), Image.BILINEAR)
+    mask_small = np.asarray(
+        Image.fromarray((cropped_mask * 255).astype(np.uint8)).resize(
+            (work_w, work_h), Image.BILINEAR
+        )
+    ) > 128
+
+    eroded_mask = binary_erosion(mask_small, structure=np.ones((3, 3)))
+    if not eroded_mask.any():
+        return crop
+
+    crop_arr = np.asarray(crop_small)
+    _, nearest_idx = distance_transform_edt(~eroded_mask, return_indices=True)
+    clean_arr = crop_arr[nearest_idx[0], nearest_idx[1]]
+    del nearest_idx
+
+    # Escalar de vuelta
+    result = Image.fromarray(clean_arr).resize((orig_w, orig_h), Image.LANCZOS)
+    return result
 
 
 def estimate_extents(views: list[View]) -> tuple[float, float, float]:
@@ -239,30 +273,27 @@ def _segment(pixels: np.ndarray) -> np.ndarray | None:
     ])
 
     # 1. Modelo estadístico de fondo con matriz de covarianza (distancia de Mahalanobis).
-    # Elimina reflejos tenues de mesa (d2 ~ 5) y soporta baja iluminación.
-    bg_mean = np.median(border, axis=0)
-    bg_cov = np.cov(border.T) + np.eye(3) * 5.0
-    inv_cov = np.linalg.inv(bg_cov)
-    diff = pixels.astype(np.float64) - bg_mean
+    # Usa float32 para reducir memoria.
+    bg_mean = np.median(border, axis=0).astype(np.float32)
+    bg_cov = np.cov(border.T).astype(np.float32) + np.eye(3, dtype=np.float32) * 5.0
+    inv_cov = np.linalg.inv(bg_cov.astype(np.float64)).astype(np.float32)
+    diff = pixels.astype(np.float32) - bg_mean
     d2 = np.einsum('ijk,kl,ijl->ij', diff, inv_cov, diff)
 
     # 2. Detección de bordes con CLAHE para fotos oscuras o grano de sensor
-    gray = rgb2gray(pixels / 255.0)
+    gray = rgb2gray(pixels / 255.0).astype(np.float32)
     smooth_gray = gaussian_filter(gray, sigma=1.0)
-    enhanced_gray = exposure.equalize_adapthist(smooth_gray, clip_limit=0.03)
+    enhanced_gray = exposure.equalize_adapthist(smooth_gray, clip_limit=0.03).astype(np.float32)
     edges = sobel(enhanced_gray)
     edge_barrier = edges > np.percentile(edges, 85)
 
     # 3. Identificación directa de primer plano:
-    # El soporte de bordes SOLO actúa donde haya una discrepancia de color perceptible (d2 >= 6.0)
-    # Evita absolutamente que texturas de fondo (telas, mantas, vetas de madera) se conviertan en objeto.
     edge_support = edge_barrier & (d2 >= 6.0)
     fg = (d2 >= 16.0) | edge_support
     fg = binary_opening(fg, structure=np.ones((3, 3)))
     fg = binary_closing(fg, structure=np.ones((5, 5)))
 
     # 4. Filtrado multi-componente inteligente:
-    # Conserva tanto la pieza principal como accesorios o wands/aplicadores desconectados (>= 12% del mayor)
     labels, num = label(fg)
     counts = np.bincount(labels.ravel())
     if num > 0:
@@ -270,10 +301,7 @@ def _segment(pixels: np.ndarray) -> np.ndarray | None:
         keep = [i for i in range(1, num + 1) if counts[i] >= 0.12 * max_c]
         fg = np.isin(labels, keep)
 
-    # 5. Limpieza generalista. No se rellenan cavidades ni se recortan bases:
-    # esas reglas históricas favorecían tazas y destruían patas, ranuras y asas
-    # de otras categorías. Los huecos grandes compatibles con el fondo quedan
-    # abiertos y solo se cierran discontinuidades de pocos píxeles.
+    # 5. Limpieza generalista.
     mask = binary_closing(fg, structure=np.ones((5, 5)))
     mask = binary_opening(mask, structure=np.ones((3, 3)))
 

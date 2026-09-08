@@ -6,8 +6,8 @@ import path from 'node:path';
 const python = process.env.MODEL3D_PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3');
 const script = process.env.MODEL3D_SCRIPT
   ?? path.resolve(process.cwd(), 'tools/model3d/build_model.py');
-const timeoutMs = Number(process.env.MODEL3D_TIMEOUT_MS ?? 600_000);
-const resolution = Number(process.env.MODEL3D_RESOLUTION ?? 64);
+const timeoutMs = Number(process.env.MODEL3D_TIMEOUT_MS ?? 300_000);
+const resolution = Number(process.env.MODEL3D_RESOLUTION ?? 48);
 
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const MAX_MODEL_BYTES = 24 * 1024 * 1024;

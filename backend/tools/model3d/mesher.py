@@ -9,6 +9,11 @@ recuperar son las concavidades, porque ninguna silueta las delata.
 La superficie se extrae utilizando el algoritmo de Marching Cubes sobre un
 campo de distancia suavizado (SDF continuo + Gaussian Filter) para erradicar
 el escalonado. Operaciones totalmente vectorizadas con numpy.
+
+Optimizado para funcionar dentro de 512 MB de RAM (Render free tier):
+- Todos los campos SDF usan float32 en vez de float64 (mitad de memoria)
+- Los campos se acumulan secuencialmente con np.minimum en vez de almacenar
+  todos simultáneamente (pico = 2 arrays en vez de N+1)
 """
 
 from __future__ import annotations
@@ -64,72 +69,61 @@ def carve(views: list[View], extents: tuple[float, float, float],
           resolution: int, semantic_category: str = 'unknown') -> tuple[np.ndarray, tuple[int, int, int]]:
     """Interseca las siluetas disponibles en un casco visual continuo.
 
-    Cada orientación aporta una restricción independiente. La versión anterior
-    solo extruía la primera foto, de modo que subir laterales o una vista
-    superior no cambiaba la geometría. Si únicamente hay una orientación,
-    añadimos el prior de profundidad conservador de ``_extrusion_sdf`` porque
-    esa dimensión no puede observarse en una sola fotografía.
+    Cada orientación aporta una restricción independiente. Los campos SDF se
+    acumulan secuencialmente con np.minimum para mantener el pico de memoria
+    en solo 2 arrays (el acumulador y el campo nuevo) en vez de N+1.
     """
     if not views:
         raise ValueError('Se necesita al menos una vista para tallar el volumen')
     dims = tuple(max(MIN_CELLS, round(resolution * value)) for value in extents)
     primary = next((v for v in views if v.index == 0), views[0])
-    fields = [_silhouette_sdf(view, dims) for view in views]
+
+    # Sequential accumulation: start with the first view, then intersect one
+    # at a time. This keeps peak memory at 2 arrays instead of N+1.
+    occupancy = _silhouette_sdf(views[0], dims)
+    for view in views[1:]:
+        new_field = _silhouette_sdf(view, dims)
+        np.minimum(occupancy, new_field, out=occupancy)
+        del new_field
+
     independent_pairs = {MEASURED_AXES[view.index] for view in views}
     if len(independent_pairs) < 2:
-        fields.append(_extrusion_sdf(primary, dims))
-    occupancy = np.minimum.reduce(fields)
+        extrusion = _extrusion_sdf(primary, dims)
+        np.minimum(occupancy, extrusion, out=occupancy)
+        del extrusion
     
     # Semantic Carving: Excavar concavidades lógicas según el objeto
     if "taza" in semantic_category or "vaso" in semantic_category or "maceta" in semantic_category:
         W, H, D = dims[0], dims[1], dims[2]
-        # El centro del objeto (ejes X y Z en matriz transpuesta)
         cx, cz = W / 2.0, D / 2.0
-        # Radio del hueco interior
         radius = min(W, D) * 0.35
-        # Grosor de la base
         base_thickness = int(H * 0.15)
         
-        # Ocupancy shape = (W, H, D). Eje Y=H es arriba (por _extrusion_sdf).
-        # Generar meshgrid (X, Y, Z)
-        x = np.arange(W)[:, np.newaxis, np.newaxis]
-        y = np.arange(H)[np.newaxis, :, np.newaxis]
-        z = np.arange(D)[np.newaxis, np.newaxis, :]
+        x = np.arange(W, dtype=np.float32)[:, np.newaxis, np.newaxis]
+        y = np.arange(H, dtype=np.float32)[np.newaxis, :, np.newaxis]
+        z = np.arange(D, dtype=np.float32)[np.newaxis, np.newaxis, :]
         
-        # Distancia al centro en X,Z
         dist2d = np.sqrt((x - cx)**2 + (z - cz)**2)
         
-        # Si estamos dentro del cilindro y arriba del fondo de la taza
-        is_hole = (dist2d < radius) & (y > base_thickness)
-        
-        # Aplicamos suavizado en los bordes para Marching Cubes
-        # is_hole es un booleano, calculamos la distancia al borde del agujero para SDF suave
-        # dist2d va desde 0 hasta >radius
-        # margin: valores positivos = dentro de la pared de la taza, negativos = dentro del hueco
         margin_hole = (dist2d - radius) / 2.0 
-        # Forzar 0.0 donde el margin es muy negativo y y > base_thickness
         hole_sdf = np.clip(margin_hole + 0.5, 0.0, 1.0)
         
-        # Combinar el SDF del hueco con la ocupancia general (solo si estamos arriba de la base)
-        # Donde y <= base_thickness, se mantiene 1.0 (no afecta)
-        # Donde y > base_thickness, aplica hole_sdf recorta el cilindro
-        modifier = np.where(y > base_thickness, hole_sdf, 1.0)
-        
-        occupancy = np.minimum(occupancy, modifier)
+        modifier = np.where(y > base_thickness, hole_sdf, np.float32(1.0))
+        np.minimum(occupancy, modifier, out=occupancy)
+        del dist2d, margin_hole, hole_sdf, modifier, x, y, z
         
     elif "anillo" in semantic_category:
         W, H, D = dims[0], dims[1], dims[2]
         cx, cy = W / 2.0, H / 2.0
-        # Anillo se talla como un donut, perforando en Z (si el anillo está de frente) o en Y si está acostado
-        # Suponemos que el frente es la vista 0 y el anillo está de cara.
         radius = min(W, H) * 0.38
-        x = np.arange(W)[:, np.newaxis, np.newaxis]
-        y = np.arange(H)[np.newaxis, :, np.newaxis]
+        x = np.arange(W, dtype=np.float32)[:, np.newaxis, np.newaxis]
+        y = np.arange(H, dtype=np.float32)[np.newaxis, :, np.newaxis]
         dist2d = np.sqrt((x - cx)**2 + (y - cy)**2)
         
         margin_hole = (dist2d - radius) / 2.0
         hole_sdf = np.clip(margin_hole + 0.5, 0.0, 1.0)
-        occupancy = np.minimum(occupancy, hole_sdf)
+        np.minimum(occupancy, hole_sdf, out=occupancy)
+        del dist2d, margin_hole, hole_sdf, x, y
         
     return occupancy, dims
 
@@ -142,16 +136,14 @@ def surface(occupancy: np.ndarray, dims: tuple[int, int, int],
     pad_occ = np.pad(occupancy, 2, mode='constant', constant_values=0.0)
 
     # Un filtro isotrópico conserva las restricciones de todas las categorías.
-    # Los perfiles especiales anteriores favorecían cilindros/tazas y podían
-    # redondear cajas, libros o cosméticos aunque su silueta fuera recta.
     sigma = max(0.55, smoothing * 0.30)
-    field_data = gaussian_filter(pad_occ, sigma=sigma)
+    field_data = gaussian_filter(pad_occ.astype(np.float32), sigma=sigma)
+    del pad_occ
 
     # Nivel de isosuperficie adaptativo
     mc_level = 0.45
 
-    # El fallback se genera con detalle completo. El visor crea después LODs
-    # reales y decide qué nivel dibujar según el presupuesto de frame.
+    # Step size for marching cubes
     step = 1 if max(dims) <= 96 else 2
 
     try:
@@ -159,11 +151,13 @@ def surface(occupancy: np.ndarray, dims: tuple[int, int, int],
     except (ValueError, RuntimeError):
         return Geometry()
 
+    del field_data
+
     if len(verts) == 0:
         return Geometry()
 
-    # Compensar el padding de 2 (las coordenadas de MC ya están en unidades de vóxel)
-    verts = verts - 2.0
+    # Compensar el padding de 2
+    verts = verts.astype(np.float32) - 2.0
 
     # Un paso leve elimina ruido de voxel sin borrar asas, patas ni relieves.
     iterations = 1 if smoothing > 0 else 0
@@ -280,7 +274,7 @@ def _compute_smooth_normals(verts: np.ndarray, faces: np.ndarray) -> np.ndarray:
     lengths = np.linalg.norm(normals, axis=1, keepdims=True)
     lengths = np.maximum(lengths, 1e-8)
     normals = normals / lengths
-    return normals
+    return normals.astype(np.float32)
 
 
 def _extrusion_sdf(view: View, dims: tuple[int, int, int]) -> np.ndarray:
@@ -289,6 +283,8 @@ def _extrusion_sdf(view: View, dims: tuple[int, int, int]) -> np.ndarray:
     En lugar de un volumen booleano discreto, genera valores flotantes [0.0, 1.0]
     donde 1.0 = interior sólido y 0.0 = exterior. Los valores intermedios en los
     bordes producen isosuperficies perfectamente lisas con Marching Cubes.
+
+    Usa float32 para reducir el consumo de memoria a la mitad.
     """
     projection = PROJECTIONS[view.index]
     horizontal_axis, horizontal_sign = projection.horizontal
@@ -305,7 +301,7 @@ def _extrusion_sdf(view: View, dims: tuple[int, int, int]) -> np.ndarray:
     D = dims[depth_axis]
 
     # EDT 2D sobre la silueta: distancia de cada píxel al borde más cercano
-    edt = distance_transform_edt(silhouette).astype(np.float64)
+    edt = distance_transform_edt(silhouette).astype(np.float32)
     max_d = max(float(edt.max()), 1.0)
 
     p = getattr(view, 'p', 4.0)
@@ -314,44 +310,45 @@ def _extrusion_sdf(view: View, dims: tuple[int, int, int]) -> np.ndarray:
     is_slab = (p >= 4.2 and not is_round and not is_cube)
 
     # Centro del eje de profundidad
-    zc = (D - 1) / 2.0
-    scale_z = D / float(max(W, 1))
+    zc = np.float32((D - 1) / 2.0)
+    scale_z = np.float32(D / float(max(W, 1)))
 
     # Coordenadas Z como array 1D
-    z_coords = np.arange(D, dtype=np.float64)
+    z_coords = np.arange(D, dtype=np.float32)
     z_dist = np.abs(z_coords - zc)  # shape: (D,)
 
     # Calcular max_dz para cada (x, y) — vectorizado sobre la silueta completa
     if is_cube:
-        u = np.minimum(1.0, edt / (max_d * 0.22))
-        bevel = np.sin(u * (np.pi * 0.5))
-        max_dz_2d = bevel * ((D - 1) * 0.48)
+        u = np.minimum(np.float32(1.0), edt / (max_d * 0.22))
+        bevel = np.sin(u * np.float32(np.pi * 0.5))
+        max_dz_2d = bevel * np.float32((D - 1) * 0.48)
     elif is_slab:
-        u = np.minimum(1.0, edt / (max_d * 0.20))
-        bevel = np.sin(u * (np.pi * 0.5))
-        max_dz_2d = bevel * ((D - 1) * 0.48)
+        u = np.minimum(np.float32(1.0), edt / (max_d * 0.20))
+        bevel = np.sin(u * np.float32(np.pi * 0.5))
+        max_dz_2d = bevel * np.float32((D - 1) * 0.48)
     elif is_round:
-        u = np.minimum(1.0, edt / (max_d * 0.50))
-        circ = np.sqrt(np.maximum(0.0, u * (2.0 - u)))
-        max_dz_2d = np.minimum(circ * (edt * scale_z * 1.05), (D - 1) * 0.48)
+        u = np.minimum(np.float32(1.0), edt / (max_d * 0.50))
+        circ = np.sqrt(np.maximum(np.float32(0.0), u * (np.float32(2.0) - u)))
+        max_dz_2d = np.minimum(circ * (edt * scale_z * np.float32(1.05)), np.float32((D - 1) * 0.48))
     else:
-        norm_d = np.minimum(1.0, edt / (max_d * 0.45))
-        max_dz_2d = np.power(np.maximum(norm_d, 1e-12), 1.0 / p) * (D * 0.48)
+        norm_d = np.minimum(np.float32(1.0), edt / (max_d * 0.45))
+        max_dz_2d = np.power(np.maximum(norm_d, np.float32(1e-12)), np.float32(1.0 / p)) * np.float32(D * 0.48)
 
     # Campo SDF 3D continuo — broadcast: max_dz_2d[W, H, 1] vs z_dist[1, 1, D]
-    # margin = max_dz - |z - zc| : positivo = interior, negativo = exterior
     margin = max_dz_2d[:, :, np.newaxis] - z_dist[np.newaxis, np.newaxis, :]
 
     # Normalizar a [0, 1] con transición suave de ~1.5 vóxeles
-    transition_width = 1.5
-    sdf = np.clip(margin / transition_width + 0.5, 0.0, 1.0)
+    transition_width = np.float32(1.5)
+    sdf = np.clip(margin / transition_width + np.float32(0.5), np.float32(0.0), np.float32(1.0))
+    del margin
 
     # Enmascarar píxeles fuera de la silueta
     sdf[~silhouette[:, :, np.newaxis].repeat(D, axis=2)] = 0.0
 
     # Suavizar el borde de la silueta: aplicar un falloff en los 2 vóxeles periféricos
-    edge_falloff = np.minimum(edt / 2.0, 1.0)
+    edge_falloff = np.minimum(edt / np.float32(2.0), np.float32(1.0))
     sdf *= edge_falloff[:, :, np.newaxis]
+    del edt, edge_falloff
 
     # Reordenar ejes al orden (X, Y, Z) del modelo
     order = [horizontal_axis, vertical_axis, depth_axis]
@@ -359,7 +356,10 @@ def _extrusion_sdf(view: View, dims: tuple[int, int, int]) -> np.ndarray:
 
 
 def _silhouette_sdf(view: View, dims: tuple[int, int, int]) -> np.ndarray:
-    """Extruye una silueta por todo su eje oculto para tallado multivista."""
+    """Extruye una silueta por todo su eje oculto para tallado multivista.
+
+    Usa float32 para reducir memoria.
+    """
     projection = PROJECTIONS[view.index]
     horizontal_axis, horizontal_sign = projection.horizontal
     vertical_axis, vertical_sign = projection.vertical
@@ -376,13 +376,17 @@ def _silhouette_sdf(view: View, dims: tuple[int, int, int]) -> np.ndarray:
     if vertical_sign < 0:
         silhouette = silhouette[:, ::-1]
 
-    inside = distance_transform_edt(silhouette)
-    outside = distance_transform_edt(~silhouette)
+    inside = distance_transform_edt(silhouette).astype(np.float32)
+    outside = distance_transform_edt(~silhouette).astype(np.float32)
     signed_distance = inside - outside
-    field_2d = np.clip(0.5 + signed_distance / 2.0, 0.0, 1.0)
+    del inside, outside
+    field_2d = np.clip(np.float32(0.5) + signed_distance / np.float32(2.0),
+                       np.float32(0.0), np.float32(1.0))
+    del signed_distance
     field = np.repeat(
         field_2d[:, :, np.newaxis], dims[depth_axis], axis=2,
     )
+    del field_2d
     order = [horizontal_axis, vertical_axis, depth_axis]
     return np.transpose(field, np.argsort(order))
 
