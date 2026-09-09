@@ -87,7 +87,8 @@ class DepotApiClient {
   }
 
   Future<String> uploadProductImage(
-      String productId, int viewIndex, Uint8List bytes) async {
+      String productId, int viewIndex, Uint8List bytes, {bool isVideo = false}) async {
+    final ext = isVideo ? 'mp4' : 'jpg';
     final request = http.MultipartRequest(
       'POST',
       _uri('/api/uploads/product-image'),
@@ -96,7 +97,7 @@ class DepotApiClient {
       ..fields['productId'] = productId
       ..fields['viewIndex'] = '$viewIndex'
       ..files.add(http.MultipartFile.fromBytes('image', bytes,
-          filename: '$productId-$viewIndex.jpg'));
+          filename: '$productId-$viewIndex.$ext'));
     final streamed = await request.send();
     final response = await http.Response.fromStream(streamed);
     _ensureSuccess(response);

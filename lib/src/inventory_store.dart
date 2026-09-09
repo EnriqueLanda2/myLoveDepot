@@ -49,6 +49,81 @@ class InventoryStore extends ChangeNotifier {
   double get inventoryValue =>
       _products.fold(0, (sum, item) => sum + item.inventoryValue);
 
+  /// Ganancias acumuladas de ventas registradas hoy
+  double get todayEarnings {
+    final now = DateTime.now();
+    double total = 0.0;
+    for (final m in _movements) {
+      if (m.type == MovementType.outgoing &&
+          m.createdAt.year == now.year &&
+          m.createdAt.month == now.month &&
+          m.createdAt.day == now.day) {
+        final price = m.unitPrice > 0
+            ? m.unitPrice
+            : (_products.where((p) => p.id == m.productId).firstOrNull?.price ?? 0.0);
+        total += m.quantity * price;
+      }
+    }
+    return total;
+  }
+
+  /// Ganancias acumuladas de ventas registradas en el mes en curso
+  double get monthEarnings {
+    final now = DateTime.now();
+    double total = 0.0;
+    for (final m in _movements) {
+      if (m.type == MovementType.outgoing &&
+          m.createdAt.year == now.year &&
+          m.createdAt.month == now.month) {
+        final price = m.unitPrice > 0
+            ? m.unitPrice
+            : (_products.where((p) => p.id == m.productId).firstOrNull?.price ?? 0.0);
+        total += m.quantity * price;
+      }
+    }
+    return total;
+  }
+
+  /// Unidades vendidas hoy
+  int get todaySalesUnits {
+    final now = DateTime.now();
+    int count = 0;
+    for (final m in _movements) {
+      if (m.type == MovementType.outgoing &&
+          m.createdAt.year == now.year &&
+          m.createdAt.month == now.month &&
+          m.createdAt.day == now.day) {
+        count += m.quantity;
+      }
+    }
+    return count;
+  }
+
+  /// Unidades vendidas en el mes
+  int get monthSalesUnits {
+    final now = DateTime.now();
+    int count = 0;
+    for (final m in _movements) {
+      if (m.type == MovementType.outgoing &&
+          m.createdAt.year == now.year &&
+          m.createdAt.month == now.month) {
+        count += m.quantity;
+      }
+    }
+    return count;
+  }
+
+  /// Venta rápida de 1 unidad desde la card del catálogo
+  Future<String?> quickSale(Product product) async {
+    if (product.stock <= 0) return 'El producto está agotado.';
+    return moveStock(
+      product: product,
+      type: MovementType.outgoing,
+      quantity: 1,
+      note: 'Venta (Catálogo)',
+    );
+  }
+
   Product? findByBarcode(String barcode) {
     final normalized = barcode.trim();
     if (normalized.isEmpty) return null;
@@ -295,10 +370,6 @@ class InventoryStore extends ChangeNotifier {
           product.pendingImagesBase64 = [];
           product.photoBase64 = '';
           if (uploaded.isNotEmpty) {
-            // Las fotos ya están en el servidor: es el momento de rehacer el
-            // modelo 3D, que se arma a partir de ellas.
-            final modelFailure = await buildModel(product);
-            if (modelFailure != null) return modelFailure;
             await _refreshRemote();
           }
           await _save();
@@ -349,6 +420,7 @@ class InventoryStore extends ChangeNotifier {
         type: type,
         quantity: quantity,
         createdAt: DateTime.now(),
+        unitPrice: product.price,
         note: note,
       ),
     );
@@ -402,30 +474,75 @@ class InventoryStore extends ChangeNotifier {
   static List<Product> get _demoProducts => [
         Product(
           id: 'demo-1',
-          name: 'Caja organizadora',
-          sku: 'ORG-001',
-          category: 'Organización',
-          price: 249.90,
-          stock: 18,
-          minimumStock: 5,
+          name: 'Valentino Donna BIR - Eau de Parfum',
+          sku: 'VAL-001',
+          category: 'Mujer',
+          price: 450.00,
+          originalPrice: 580.00,
+          wholesalePrice: 399.00,
+          stock: 0,
+          minimumStock: 2,
+          imageUrl: 'https://images.unsplash.com/photo-1541643600914-78b084683601?w=600&auto=format&fit=crop&q=80',
         ),
         Product(
           id: 'demo-2',
-          name: 'Cinta para empaque',
-          sku: 'EMP-014',
-          category: 'Empaque',
-          price: 42.50,
-          stock: 4,
-          minimumStock: 8,
+          name: 'Bad Boy - Superstars',
+          sku: 'CH-002',
+          category: 'Hombre',
+          price: 550.00,
+          originalPrice: 680.00,
+          wholesalePrice: 450.00,
+          stock: 0,
+          minimumStock: 2,
+          imageUrl: 'https://images.unsplash.com/photo-1523293182086-7651a899d37f?w=600&auto=format&fit=crop&q=80',
         ),
         Product(
           id: 'demo-3',
-          name: 'Etiqueta adhesiva',
-          sku: 'ETQ-120',
-          category: 'Papelería',
-          price: 79,
-          stock: 35,
-          minimumStock: 10,
+          name: 'Invictus - Eau de Toilette',
+          sku: 'PR-003',
+          category: 'Hombre',
+          price: 450.00,
+          originalPrice: 580.00,
+          wholesalePrice: 399.00,
+          stock: 1,
+          minimumStock: 1,
+          imageUrl: 'https://images.unsplash.com/photo-1594035910387-fea47794261f?w=600&auto=format&fit=crop&q=80',
+        ),
+        Product(
+          id: 'demo-4',
+          name: 'Sauvage - Eau de Parfum',
+          sku: 'DIOR-004',
+          category: 'Hombre',
+          price: 450.00,
+          originalPrice: 580.00,
+          wholesalePrice: 399.00,
+          stock: 3,
+          minimumStock: 2,
+          imageUrl: 'https://images.unsplash.com/photo-1592945403244-b3fbafd7f539?w=600&auto=format&fit=crop&q=80',
+        ),
+        Product(
+          id: 'demo-5',
+          name: 'Valentino Donna - Coral Fantasy',
+          sku: 'VAL-005',
+          category: 'Mujer',
+          price: 450.00,
+          originalPrice: 580.00,
+          wholesalePrice: 399.00,
+          stock: 2,
+          minimumStock: 1,
+          imageUrl: 'https://images.unsplash.com/photo-1588405748880-12d1d2a59f75?w=600&auto=format&fit=crop&q=80',
+        ),
+        Product(
+          id: 'demo-6',
+          name: 'Santal 33 - Eau de parfum',
+          sku: 'LEL-006',
+          category: 'Unisex',
+          price: 550.00,
+          originalPrice: 680.00,
+          wholesalePrice: 450.00,
+          stock: 1,
+          minimumStock: 1,
+          imageUrl: 'https://images.unsplash.com/photo-1594035910387-fea47794261f?w=600&auto=format&fit=crop&q=80',
         ),
       ];
 }

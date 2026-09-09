@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:model_viewer_plus/model_viewer_plus.dart';
 
 import '../inventory_store.dart';
 import '../models.dart';
@@ -308,64 +307,106 @@ class _HomeScreenState extends State<HomeScreen> {
     }).toList()
       ..sort((a, b) => a.name.compareTo(b.name));
 
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // ── Page header ──────────────────────────────────────────────────
-          _PageHeader(
-            icon: Icons.inventory_2_outlined,
-            title: 'INVENTARIO DE PRODUCTOS',
-            subtitle:
-                '${widget.store.products.length} productos registrados  ·  busca, consulta o registra nuevo stock',
-          ),
-          const SizedBox(height: 20),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final screenWidth = constraints.maxWidth;
+        final isMobile = screenWidth < 600;
+        final int crossAxisCount;
+        if (screenWidth < 600) {
+          crossAxisCount = 2; // 2 columnas fijas en móvil
+        } else if (screenWidth < 900) {
+          crossAxisCount = 3;
+        } else if (screenWidth < 1200) {
+          crossAxisCount = 4;
+        } else {
+          crossAxisCount = 5;
+        }
 
-          // ── Filters row ──────────────────────────────────────────────────
-          Row(
+        return Padding(
+          padding: EdgeInsets.all(isMobile ? 12 : 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(
-                child: _SearchField(
-                  onChanged: (value) => setState(() => query = value),
-                ),
+              // ── Page header ──────────────────────────────────────────────────
+              _PageHeader(
+                icon: Icons.storefront_rounded,
+                title: 'CATÁLOGO DE PRODUCTOS',
+                subtitle:
+                    '${widget.store.products.length} productos disponibles  ·  toca AGREGAR para registrar venta',
               ),
-              const SizedBox(width: 12),
-              _FilterChip(
-                label: 'STOCK BAJO',
-                selected: lowStockOnly,
-                onSelected: (value) => setState(() => lowStockOnly = value),
+              const SizedBox(height: 16),
+
+              // ── Filters row ──────────────────────────────────────────────────
+              Row(
+                children: [
+                  Expanded(
+                    child: _SearchField(
+                      onChanged: (value) => setState(() => query = value),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  _FilterChip(
+                    label: 'STOCK BAJO',
+                    selected: lowStockOnly,
+                    onSelected: (value) => setState(() => lowStockOnly = value),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              // ── Products Grid ────────────────────────────────────────────────
+              Expanded(
+                child: filtered.isEmpty
+                    ? const _EmptyState(
+                        icon: Icons.search_off_rounded,
+                        message: 'No se encontraron productos en el catálogo.',
+                      )
+                    : GridView.builder(
+                        padding: const EdgeInsets.only(bottom: 24),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: crossAxisCount,
+                          crossAxisSpacing: isMobile ? 10 : 16,
+                          mainAxisSpacing: isMobile ? 12 : 18,
+                          childAspectRatio: isMobile ? 0.58 : 0.62,
+                        ),
+                        itemCount: filtered.length,
+                        itemBuilder: (context, index) {
+                          final product = filtered[index];
+                          return _CatalogProductCard(
+                            product: product,
+                            onAdd: () async {
+                              final err = await widget.store.quickSale(product);
+                              if (!context.mounted) return;
+                              if (err != null) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(err),
+                                    backgroundColor: _Colors.red,
+                                  ),
+                                );
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      '¡Venta registrada! 1x "${product.name}" agregada a ganancias.',
+                                    ),
+                                    backgroundColor: _Colors.green,
+                                    duration: const Duration(seconds: 2),
+                                  ),
+                                );
+                              }
+                            },
+                            onDetails: () => _showDetails(context, product),
+                            onEdit: () => _openProductForm(context, product),
+                            onDelete: () => _confirmDelete(context, product),
+                          );
+                        },
+                      ),
               ),
             ],
           ),
-          const SizedBox(height: 16),
-
-          // ── Products list ────────────────────────────────────────────────
-          Expanded(
-            child: filtered.isEmpty
-                ? _EmptyState(
-                    icon: Icons.search_off_rounded,
-                    message: 'No se encontraron productos.',
-                  )
-                : ListView.separated(
-                    itemCount: filtered.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
-                    itemBuilder: (context, index) {
-                      final product = filtered[index];
-                      return _ProductTile(
-                        product: product,
-                        store: widget.store,
-                        onStock: () => showStockDialog(
-                            context, widget.store, product),
-                        onDetails: () => _showDetails(context, product),
-                        onEdit: () => _openProductForm(context, product),
-                        onDelete: () => _confirmDelete(context, product),
-                      );
-                    },
-                  ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -825,243 +866,379 @@ class _FilterChip extends StatelessWidget {
 }
 
 // ── Product tile ──────────────────────────────────────────────────────────────
-class _ProductTile extends StatelessWidget {
-  const _ProductTile({
+// ── Card de Producto Tipo Catálogo (Referencia compartida) ────────────────────
+class _CatalogProductCard extends StatelessWidget {
+  const _CatalogProductCard({
     required this.product,
-    required this.store,
-    required this.onStock,
+    required this.onAdd,
     required this.onDetails,
     required this.onEdit,
     required this.onDelete,
   });
 
   final Product product;
-  final InventoryStore store;
-  final VoidCallback onStock;
+  final VoidCallback onAdd;
   final VoidCallback onDetails;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
-    final lowStock = product.hasLowStock;
-    return GestureDetector(
-      onTap: onDetails,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: _Colors.bgCard,
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(
-            color: lowStock ? _Colors.amber.withOpacity(0.25) : _Colors.stroke,
-            width: 1,
+    final isAgotado = product.stock <= 0;
+    Uint8List? memoryBytes;
+    if (product.photoBase64.isNotEmpty) {
+      try {
+        memoryBytes = base64Decode(product.photoBase64);
+      } on FormatException {
+        memoryBytes = null;
+      }
+    }
+
+    final categoryLower = product.category.toLowerCase();
+    Color categoryBg;
+    Color categoryText;
+    if (categoryLower.contains('hombre')) {
+      categoryBg = const Color(0xffe0f2fe);
+      categoryText = const Color(0xff0284c7);
+    } else if (categoryLower.contains('mujer')) {
+      categoryBg = const Color(0xfffce7f3);
+      categoryText = const Color(0xffdb2777);
+    } else if (categoryLower.contains('unisex')) {
+      categoryBg = const Color(0xfff3e8ff);
+      categoryText = const Color(0xff9333ea);
+    } else {
+      categoryBg = const Color(0xfff1f5f9);
+      categoryText = const Color(0xff475569);
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xffefe4eb), width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
           ),
-        ),
-        child: Row(
-          children: [
-            // Thumb
-            _ProductThumb(product: product),
-            const SizedBox(width: 16),
-            // Info
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    product.name,
-                    style: const TextStyle(
-                      color: _Colors.textPrimary,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 14,
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // ── Contenedor Superior de Imagen / Video ──────────────────────────
+          Expanded(
+            flex: 11,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                // Fondo oscuro estético (estilo estudio/desierto de la foto)
+                Container(
+                  color: const Color(0xff1f1d1e),
+                  child: memoryBytes != null
+                      ? Image.memory(
+                          memoryBytes,
+                          fit: BoxFit.cover,
+                        )
+                      : product.imageUrl.isNotEmpty
+                          ? Image.network(
+                              product.imageUrl,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => const Center(
+                                child: Icon(Icons.broken_image_rounded,
+                                    color: Colors.white38, size: 36),
+                              ),
+                            )
+                          : Center(
+                              child: Icon(
+                                product.isVideo
+                                    ? Icons.videocam_rounded
+                                    : Icons.inventory_2_outlined,
+                                color: Colors.white38,
+                                size: 44,
+                              ),
+                            ),
+                ),
+
+                // Scrim oscurecido si está agotado
+                if (isAgotado)
+                  Container(
+                    color: Colors.black.withValues(alpha: 0.42),
+                  ),
+
+                // Badge superior izquierdo: Descuento "-22%"
+                Positioned(
+                  top: 8,
+                  left: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.85),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      '-${product.discountPercent}%',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.2,
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Wrap(
-                    spacing: 8,
+                ),
+
+                // Badge superior derecho: "DISPONIBLES: X" o indicador de video
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      _InfoTag(label: product.sku),
-                      _InfoTag(label: product.category),
-                      _InfoTag(
-                        label:
-                            '\$${product.price.toStringAsFixed(2)} / ud.',
-                        highlight: false,
+                      if (product.isVideo) ...[
+                        Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.7),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.play_arrow_rounded,
+                              color: Colors.white, size: 12),
+                        ),
+                        const SizedBox(width: 4),
+                      ],
+                      if (!isAgotado)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xff007a4d),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            'DISPONIBLES: ${product.stock}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.3,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+
+                // Insignia central blanca "AGOTADO"
+                if (isAgotado)
+                  Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(2),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.25),
+                            blurRadius: 6,
+                          ),
+                        ],
+                      ),
+                      child: const Text(
+                        'AGOTADO',
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.8,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+
+          // ── Cuerpo de Información ──────────────────────────────────────────
+          Expanded(
+            flex: 11,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Título con tipografía editorial / elegante
+                      Text(
+                        product.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontFamily: 'serif',
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xff18181b),
+                          height: 1.2,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+
+                      // Chip de Género / Categoría
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: categoryBg,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          product.category.toUpperCase(),
+                          style: TextStyle(
+                            color: categoryText,
+                            fontSize: 8.5,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+
+                      // "Sin reseñas"
+                      const Text(
+                        'Sin reseñas',
+                        style: TextStyle(
+                          color: Color(0xff94a3b8),
+                          fontSize: 10,
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  // Precios
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        textBaseline: TextBaseline.alphabetic,
+                        children: [
+                          Text(
+                            '\$${product.price.toStringAsFixed(0)}',
+                            style: const TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w900,
+                              color: Color(0xff18181b),
+                              letterSpacing: -0.5,
+                            ),
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            '\$${product.effectiveOriginalPrice.toStringAsFixed(0)}',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Color(0xff94a3b8),
+                              decoration: TextDecoration.lineThrough,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const Text(
+                        'PRECIO FINAL',
+                        style: TextStyle(
+                          color: Color(0xff64748b),
+                          fontSize: 8,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.6,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '🏷️ Mayoreo \$${product.effectiveWholesalePrice.toStringAsFixed(2)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xff059669),
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  // ── Botones "AGREGAR" y "DETALLES" ─────────────────────────
+                  Row(
+                    children: [
+                      // Botón AGREGAR (verde si hay stock, gris si agotado)
+                      Expanded(
+                        child: SizedBox(
+                          height: 30,
+                          child: ElevatedButton(
+                            onPressed: isAgotado ? null : onAdd,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xff006847),
+                              foregroundColor: Colors.white,
+                              disabledBackgroundColor: const Color(0xffe2e8f0),
+                              disabledForegroundColor: const Color(0xff94a3b8),
+                              padding: EdgeInsets.zero,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                            ),
+                            child: const Text(
+                              'AGREGAR',
+                              style: TextStyle(
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.6,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 5),
+
+                      // Botón DETALLES (negro)
+                      Expanded(
+                        child: SizedBox(
+                          height: 30,
+                          child: ElevatedButton(
+                            onPressed: onDetails,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.black,
+                              foregroundColor: Colors.white,
+                              padding: EdgeInsets.zero,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                            ),
+                            child: const Text(
+                              'DETALLES',
+                              style: TextStyle(
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.6,
+                              ),
+                            ),
+                          ),
+                        ),
                       ),
                     ],
                   ),
                 ],
               ),
             ),
-            const SizedBox(width: 12),
-            // Stock badge
-            _StockBadge(
-              stock: product.stock,
-              minimum: product.minimumStock,
-              isLow: lowStock,
-            ),
-            const SizedBox(width: 8),
-            // Actions
-            _TileActions(
-              onStock: onStock,
-              onDetails: onDetails,
-              onEdit: onEdit,
-              onDelete: onDelete,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _InfoTag extends StatelessWidget {
-  const _InfoTag({required this.label, this.highlight = true});
-  final String label;
-  final bool highlight;
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      label,
-      style: TextStyle(
-        color: highlight ? _Colors.textSecondary : _Colors.textSecondary,
-        fontSize: 11,
-        letterSpacing: 0.3,
-      ),
-    );
-  }
-}
-
-class _StockBadge extends StatelessWidget {
-  const _StockBadge(
-      {required this.stock,
-      required this.minimum,
-      required this.isLow});
-  final int stock;
-  final int minimum;
-  final bool isLow;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = isLow ? _Colors.amber : _Colors.green;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: color.withOpacity(0.25), width: 1),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            '$stock',
-            style: TextStyle(
-              color: color,
-              fontWeight: FontWeight.w800,
-              fontSize: 16,
-            ),
-          ),
-          Text(
-            'UIDS.',
-            style: TextStyle(
-              color: color.withOpacity(0.7),
-              fontSize: 8,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1,
-            ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _TileActions extends StatelessWidget {
-  const _TileActions({
-    required this.onStock,
-    required this.onDetails,
-    required this.onEdit,
-    required this.onDelete,
-  });
-  final VoidCallback onStock;
-  final VoidCallback onDetails;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _IconActionButton(
-          icon: Icons.swap_horiz_rounded,
-          tooltip: 'Entrada / Salida',
-          onPressed: onStock,
-        ),
-        _IconActionButton(
-          icon: Icons.visibility_outlined,
-          tooltip: 'Ver detalle',
-          onPressed: onDetails,
-        ),
-        PopupMenuButton<String>(
-          icon: const Icon(Icons.more_vert,
-              color: _Colors.textSecondary, size: 20),
-          padding: const EdgeInsets.all(4),
-          onSelected: (value) {
-            if (value == 'edit') {
-              onEdit();
-            } else {
-              onDelete();
-            }
-          },
-          itemBuilder: (_) => const [
-            PopupMenuItem(
-              value: 'edit',
-              child: Row(
-                children: [
-                  Icon(Icons.edit_outlined, size: 16),
-                  SizedBox(width: 8),
-                  Text('Editar'),
-                ],
-              ),
-            ),
-            PopupMenuItem(
-              value: 'delete',
-              child: Row(
-                children: [
-                  Icon(Icons.delete_outline, size: 16, color: _Colors.red),
-                  SizedBox(width: 8),
-                  Text('Eliminar', style: TextStyle(color: _Colors.red)),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _IconActionButton extends StatelessWidget {
-  const _IconActionButton(
-      {required this.icon,
-      required this.tooltip,
-      required this.onPressed});
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(4),
-        child: Container(
-          padding: const EdgeInsets.all(6),
-          child: Icon(icon, color: _Colors.textSecondary, size: 18),
-        ),
       ),
     );
   }
@@ -1110,22 +1287,6 @@ class _ProductDetails extends StatefulWidget {
 
 class _ProductDetailsState extends State<_ProductDetails> {
   int imageIndex = 0;
-  bool showModel = true;
-  bool building = false;
-
-  Future<void> _buildModel() async {
-    final messenger = ScaffoldMessenger.of(context);
-    setState(() => building = true);
-    final failure = await widget.store.buildModel(widget.product);
-    if (!mounted) return;
-    messenger.showSnackBar(SnackBar(
-      content: Text(failure ?? 'Modelo 3D generado a partir de las fotos.'),
-    ));
-    setState(() {
-      building = false;
-      showModel = failure == null;
-    });
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -1135,112 +1296,156 @@ class _ProductDetailsState extends State<_ProductDetails> {
         : product.imageUrl.isNotEmpty
             ? [product.imageUrl]
             : <String>[];
-    final hasModel = product.modelUrl.isNotEmpty;
+    Uint8List? memoryBytes;
+    if (product.photoBase64.isNotEmpty) {
+      try {
+        memoryBytes = base64Decode(product.photoBase64);
+      } on FormatException {
+        memoryBytes = null;
+      }
+    }
 
     return LayoutBuilder(builder: (context, constraints) {
       final wide = constraints.maxWidth > 760;
       final gallery = Container(
-        color: _Colors.bgDeep,
-        child: hasModel && showModel
-            ? _ModelStage(
-                product: product,
-                onShowPhotos: images.isEmpty
-                    ? null
-                    : () => setState(() => showModel = false),
+        color: const Color(0xff18181b),
+        child: product.isVideo
+            ? Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white24, width: 2),
+                      ),
+                      child: const Icon(Icons.play_arrow_rounded,
+                          size: 64, color: Colors.white),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Video de ${product.name}',
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Video MP4 / WebM verificado e íntegro',
+                      style: TextStyle(color: Colors.white60, fontSize: 12),
+                    ),
+                  ],
+                ),
               )
-            : images.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.inventory_2_outlined,
-                            size: 80, color: _Colors.textSecondary),
-                        const SizedBox(height: 12),
-                        const Text('Sin imágenes',
-                            style: TextStyle(color: _Colors.textSecondary)),
-                      ],
+            : memoryBytes != null
+                ? InteractiveViewer(
+                    minScale: 0.8,
+                    maxScale: 4.0,
+                    child: Center(
+                      child: Image.memory(
+                        memoryBytes,
+                        fit: BoxFit.contain,
+                      ),
                     ),
                   )
-                : Column(children: [
-                    if (hasModel)
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: Padding(
-                          padding: const EdgeInsets.only(top: 12, right: 12),
-                          child: TextButton.icon(
-                            onPressed: () =>
-                                setState(() => showModel = true),
-                            icon: const Icon(Icons.view_in_ar_outlined,
-                                size: 16),
-                            label: const Text('Ver modelo 3D'),
-                          ),
-                        ),
-                      ),
-                    Expanded(
-                      child: PageView.builder(
-                        itemCount: images.length,
-                        onPageChanged: (value) =>
-                            setState(() => imageIndex = value),
-                        itemBuilder: (_, index) => AnimatedScale(
-                          scale: imageIndex == index ? 1 : .92,
-                          duration: const Duration(milliseconds: 250),
-                          child: InteractiveViewer(
-                            minScale: .8,
-                            maxScale: 4,
-                            child: Image.network(
-                              images[index],
-                              fit: BoxFit.contain,
-                              errorBuilder: (_, __, ___) => const Center(
-                                  child: Icon(Icons.broken_image_outlined,
-                                      size: 70)),
+                : images.isNotEmpty
+                    ? Column(
+                        children: [
+                          Expanded(
+                            child: PageView.builder(
+                              itemCount: images.length,
+                              onPageChanged: (value) =>
+                                  setState(() => imageIndex = value),
+                              itemBuilder: (_, index) => InteractiveViewer(
+                                minScale: 0.8,
+                                maxScale: 4.0,
+                                child: Center(
+                                  child: Image.network(
+                                    images[index],
+                                    fit: BoxFit.contain,
+                                    errorBuilder: (_, __, ___) => const Center(
+                                      child: Icon(Icons.broken_image_outlined,
+                                          size: 70, color: Colors.white38),
+                                    ),
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
+                          if (images.length > 1)
+                            Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Text(
+                                'Vista ${imageIndex + 1} de ${images.length}  ·  Desliza para explorar',
+                                style: const TextStyle(
+                                    color: Colors.white60, fontSize: 12),
+                              ),
+                            ),
+                        ],
+                      )
+                    : const Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.inventory_2_outlined,
+                                size: 80, color: Colors.white38),
+                            SizedBox(height: 12),
+                            Text('Sin imágenes registradas',
+                                style: TextStyle(color: Colors.white60)),
+                          ],
                         ),
                       ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Text(
-                        images.length > 1
-                            ? 'Desliza para girar · Vista ${imageIndex + 1} de ${images.length}'
-                            : 'Pellizca para ampliar la imagen',
-                        style: const TextStyle(
-                            color: _Colors.textSecondary, fontSize: 12),
-                      ),
-                    ),
-                  ]),
       );
 
+      final isAgotado = product.stock <= 0;
+
       final info = SingleChildScrollView(
-        padding: const EdgeInsets.all(28),
+        padding: const EdgeInsets.all(24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // ── Product name ──────────────────────────────────────────
             Text(
               product.name,
               style: const TextStyle(
                 color: _Colors.textPrimary,
                 fontSize: 22,
+                fontFamily: 'serif',
                 fontWeight: FontWeight.w800,
-                letterSpacing: 0.5,
+                letterSpacing: 0.3,
               ),
             ),
-            const SizedBox(height: 8),
-            Wrap(spacing: 8, runSpacing: 8, children: [
-              _DetailChip(label: product.category, icon: Icons.label_outline),
-              _DetailChip(
-                label: product.hasLowStock ? 'STOCK BAJO' : 'DISPONIBLE',
-                icon: product.hasLowStock
-                    ? Icons.warning_amber_rounded
-                    : Icons.check_circle_outline,
-                color:
-                    product.hasLowStock ? _Colors.amber : _Colors.green,
-              ),
-            ]),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _DetailChip(label: product.category, icon: Icons.label_outline),
+                _DetailChip(
+                  label: isAgotado
+                      ? 'AGOTADO'
+                      : (product.hasLowStock ? 'STOCK BAJO' : 'DISPONIBLE'),
+                  icon: isAgotado
+                      ? Icons.cancel_outlined
+                      : (product.hasLowStock
+                          ? Icons.warning_amber_rounded
+                          : Icons.check_circle_outline),
+                  color: isAgotado
+                      ? _Colors.red
+                      : (product.hasLowStock ? _Colors.amber : _Colors.green),
+                ),
+                if (product.isVideo)
+                  const _DetailChip(
+                    label: 'VIDEO ADJUNTO',
+                    icon: Icons.videocam_rounded,
+                    color: Color(0xff0284c7),
+                  ),
+              ],
+            ),
             const SizedBox(height: 24),
 
-            // ── Detail rows ───────────────────────────────────────────
             _detailRow(Icons.qr_code, 'CÓDIGO',
                 product.barcode.isEmpty ? 'Sin código' : product.barcode),
             _detailRow(Icons.sell_outlined, 'SKU', product.sku),
@@ -1248,25 +1453,60 @@ class _ProductDetailsState extends State<_ProductDetails> {
                 '${product.stock} unidades'),
             _detailRow(Icons.low_priority, 'STOCK MÍNIMO',
                 '${product.minimumStock} unidades'),
-            _detailRow(Icons.payments_outlined, 'PRECIO POR UNIDAD',
+            _detailRow(Icons.payments_outlined, 'PRECIO FINAL',
                 '\$${product.price.toStringAsFixed(2)}'),
+            _detailRow(Icons.price_change_outlined, 'PRECIO REGULAR',
+                '\$${product.effectiveOriginalPrice.toStringAsFixed(2)}'),
+            _detailRow(Icons.local_offer_outlined, 'PRECIO MAYOREO',
+                '\$${product.effectiveWholesalePrice.toStringAsFixed(2)}'),
             _detailRow(
                 Icons.account_balance_wallet_outlined,
                 'VALOR EN INVENTARIO',
                 '\$${product.inventoryValue.toStringAsFixed(2)}'),
 
-            const SizedBox(height: 28),
+            const SizedBox(height: 24),
             const _SectionDivider(label: 'ACCIONES'),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
 
-            // ── Action buttons ────────────────────────────────────────
+            // Botón Venta Rápida (1 unidad)
             FilledButton.icon(
+              onPressed: isAgotado
+                  ? null
+                  : () async {
+                      final err = await widget.store.quickSale(product);
+                      if (!context.mounted) return;
+                      if (err != null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(err), backgroundColor: _Colors.red),
+                        );
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Venta registrada: \$${product.price.toStringAsFixed(2)} sumados a ganancias.'),
+                            backgroundColor: _Colors.green,
+                          ),
+                        );
+                      }
+                    },
+              icon: const Icon(Icons.point_of_sale_rounded, size: 18),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xff006847),
+                foregroundColor: Colors.white,
+              ),
+              label: const Text(
+                'REGISTRAR VENTA (1 UNIDAD)',
+                style: TextStyle(
+                    fontWeight: FontWeight.w800, letterSpacing: 1.1, fontSize: 12),
+              ),
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
               onPressed: widget.onStock,
               icon: const Icon(Icons.swap_horiz, size: 18),
               label: const Text(
-                'REGISTRAR MOVIMIENTO',
+                'ENTRADA / SALIDA MANUAL',
                 style: TextStyle(
-                    fontWeight: FontWeight.w800, letterSpacing: 1.2, fontSize: 12),
+                    fontWeight: FontWeight.w800, letterSpacing: 1.1, fontSize: 12),
               ),
             ),
             const SizedBox(height: 10),
@@ -1276,15 +1516,8 @@ class _ProductDetailsState extends State<_ProductDetails> {
               label: const Text('EDITAR PRODUCTO',
                   style: TextStyle(
                       fontWeight: FontWeight.w700,
-                      letterSpacing: 1.2,
+                      letterSpacing: 1.1,
                       fontSize: 12)),
-            ),
-            const SizedBox(height: 10),
-            _ModelButton(
-              hasModel: hasModel,
-              hasPhotos: images.isNotEmpty,
-              building: building || widget.store.isBuildingModel(product.id),
-              onPressed: _buildModel,
             ),
           ],
         ),
@@ -1304,7 +1537,7 @@ class _ProductDetailsState extends State<_ProductDetails> {
   }
 
   Widget _detailRow(IconData icon, String label, String value) => Padding(
-        padding: const EdgeInsets.only(bottom: 14),
+        padding: const EdgeInsets.only(bottom: 12),
         child: Row(children: [
           Container(
             padding: const EdgeInsets.all(7),
@@ -1315,7 +1548,7 @@ class _ProductDetailsState extends State<_ProductDetails> {
             ),
             child: Icon(icon, color: _Colors.magenta, size: 16),
           ),
-          const SizedBox(width: 14),
+          const SizedBox(width: 12),
           Expanded(
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1326,7 +1559,7 @@ class _ProductDetailsState extends State<_ProductDetails> {
                     color: _Colors.textSecondary,
                     fontSize: 9,
                     fontWeight: FontWeight.w700,
-                    letterSpacing: 2,
+                    letterSpacing: 1.8,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -1334,7 +1567,7 @@ class _ProductDetailsState extends State<_ProductDetails> {
                   value,
                   style: const TextStyle(
                     color: _Colors.textPrimary,
-                    fontSize: 14,
+                    fontSize: 13.5,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -1343,34 +1576,44 @@ class _ProductDetailsState extends State<_ProductDetails> {
       );
 }
 
+// ── Detail chip & Section divider ──────────────────────────────────────────────
 class _DetailChip extends StatelessWidget {
-  const _DetailChip({required this.label, required this.icon, this.color});
+  const _DetailChip({
+    required this.label,
+    required this.icon,
+    this.color,
+  });
+
   final String label;
   final IconData icon;
   final Color? color;
 
   @override
   Widget build(BuildContext context) {
-    final c = color ?? _Colors.textSecondary;
+    final effectiveColor = color ?? _Colors.textSecondary;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: c.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: c.withOpacity(0.25), width: 1),
+        color: effectiveColor.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: effectiveColor.withValues(alpha: 0.25),
+          width: 1,
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: c, size: 13),
+          Icon(icon, size: 14, color: effectiveColor),
           const SizedBox(width: 5),
           Text(
             label,
             style: TextStyle(
-                color: c,
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.8),
+              color: effectiveColor,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.4,
+            ),
           ),
         ],
       ),
@@ -1378,7 +1621,6 @@ class _DetailChip extends StatelessWidget {
   }
 }
 
-// ── _SectionDivider (shared) ──────────────────────────────────────────────────
 class _SectionDivider extends StatelessWidget {
   const _SectionDivider({required this.label});
   final String label;
@@ -1387,183 +1629,19 @@ class _SectionDivider extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Expanded(child: Container(height: 1, color: _Colors.stroke)),
-        const SizedBox(width: 10),
         Text(
           label,
           style: const TextStyle(
             color: _Colors.textSecondary,
-            fontSize: 9,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 2.5,
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 1.2,
           ),
         ),
         const SizedBox(width: 10),
-        Expanded(child: Container(height: 1, color: _Colors.stroke)),
-      ],
-    );
-  }
-}
-
-// ── Model stage ────────────────────────────────────────────────────────────────
-class _ModelStage extends StatelessWidget {
-  const _ModelStage({required this.product, this.onShowPhotos});
-  final Product product;
-  final VoidCallback? onShowPhotos;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(children: [
-      Expanded(
-        child: FutureBuilder<String>(
-          future: PwaHelpers.resolveModelUrl(product.modelUrl),
-          builder: (context, snapshot) {
-            final modelSrc = snapshot.data ?? product.modelUrl;
-            return ModelViewer(
-              key: ValueKey(modelSrc),
-              src: modelSrc,
-              alt: 'Modelo 3D de ${product.name}',
-              autoRotate: true,
-              autoRotateDelay: 600,
-              cameraControls: true,
-              cameraOrbit: '25deg 70deg 105%',
-              shadowIntensity: 0.65,
-              exposure: 1.0,
-              backgroundColor: _Colors.bgDeep,
-            );
-          },
+        const Expanded(
+          child: Divider(color: _Colors.stroke, thickness: 1),
         ),
-      ),
-      Container(
-        padding: const EdgeInsets.all(16),
-        decoration: const BoxDecoration(
-          border: Border(top: BorderSide(color: _Colors.stroke, width: 1)),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Flexible(
-              child: Text(
-                'Arrastra para girar  ·  pellizca para acercar',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: _Colors.textSecondary, fontSize: 11),
-              ),
-            ),
-            if (onShowPhotos != null) ...[
-              const SizedBox(width: 12),
-              TextButton.icon(
-                onPressed: onShowPhotos,
-                icon: const Icon(Icons.photo_library_outlined, size: 16),
-                label: const Text('Fotos'),
-              ),
-            ],
-          ],
-        ),
-      ),
-    ]);
-  }
-}
-
-// ── Model button ───────────────────────────────────────────────────────────────
-class _ModelButton extends StatelessWidget {
-  const _ModelButton({
-    required this.hasModel,
-    required this.hasPhotos,
-    required this.building,
-    required this.onPressed,
-  });
-  final bool hasModel;
-  final bool hasPhotos;
-  final bool building;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    if (building) {
-      return OutlinedButton.icon(
-        onPressed: null,
-        icon: const SizedBox(
-          width: 18,
-          height: 18,
-          child: CircularProgressIndicator(
-              strokeWidth: 2, color: _Colors.magenta),
-        ),
-        label: const Text('GENERANDO MODELO 3D…',
-            style: TextStyle(
-                letterSpacing: 1.2,
-                fontWeight: FontWeight.w700,
-                fontSize: 12)),
-      );
-    }
-    return OutlinedButton.icon(
-      onPressed: hasPhotos ? onPressed : null,
-      icon: const Icon(Icons.view_in_ar_outlined, size: 18),
-      label: Text(
-        !hasPhotos
-            ? 'AGREGA FOTOS PARA GENERAR MODELO'
-            : hasModel
-                ? 'REGENERAR MODELO 3D'
-                : 'GENERAR MODELO 3D',
-        style: const TextStyle(
-            letterSpacing: 1.2, fontWeight: FontWeight.w700, fontSize: 12),
-      ),
-    );
-  }
-}
-
-// ── Product thumbnail ─────────────────────────────────────────────────────────
-class _ProductThumb extends StatelessWidget {
-  const _ProductThumb({required this.product});
-  final Product product;
-
-  @override
-  Widget build(BuildContext context) {
-    Uint8List? bytes;
-    if (product.photoBase64.isNotEmpty) {
-      try {
-        bytes = base64Decode(product.photoBase64);
-      } on FormatException {
-        bytes = null;
-      }
-    }
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        Container(
-          width: 52,
-          height: 52,
-          decoration: BoxDecoration(
-            color: _Colors.bgSurface,
-            borderRadius: BorderRadius.circular(4),
-            border: Border.all(color: _Colors.strokeMagenta, width: 1),
-            image: bytes != null
-                ? DecorationImage(
-                    image: MemoryImage(bytes), fit: BoxFit.cover)
-                : product.imageUrl.isNotEmpty
-                    ? DecorationImage(
-                        image: NetworkImage(product.imageUrl),
-                        fit: BoxFit.cover)
-                    : null,
-          ),
-          child: bytes == null && product.imageUrl.isEmpty
-              ? const Icon(Icons.inventory_2_outlined,
-                  color: _Colors.textSecondary, size: 22)
-              : null,
-        ),
-        if (product.hasLowStock)
-          Positioned(
-            right: -4,
-            top: -4,
-            child: Container(
-              width: 10,
-              height: 10,
-              decoration: BoxDecoration(
-                color: _Colors.amber,
-                shape: BoxShape.circle,
-                border: Border.all(color: _Colors.bgCard, width: 1.5),
-              ),
-            ),
-          ),
       ],
     );
   }
@@ -1577,100 +1655,147 @@ class _Dashboard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ── Header ────────────────────────────────────────────────────
-          _PageHeader(
-            icon: Icons.dashboard_outlined,
-            title: 'RESUMEN DEL ALMACÉN',
-            subtitle:
-                'Estado en tiempo real  ·  ${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}',
-          ),
-          const SizedBox(height: 24),
+    final now = DateTime.now();
 
-          // ── Metric cards ──────────────────────────────────────────────
-          Wrap(
-            spacing: 14,
-            runSpacing: 14,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final screenWidth = constraints.maxWidth;
+        final isMobile = screenWidth < 680;
+
+        final cards = [
+          // 1. Ganancias Hoy
+          _MetricCard(
+            icon: Icons.point_of_sale_rounded,
+            label: 'GANANCIAS HOY',
+            value: '\$${store.todayEarnings.toStringAsFixed(2)}',
+            subtitle: '${store.todaySalesUnits} ventas hoy',
+            accent: const Color(0xff059669),
+            badgeColor: const Color(0xffecfdf5),
+          ),
+          // 2. Ganancias Mes
+          _MetricCard(
+            icon: Icons.savings_rounded,
+            label: 'GANANCIAS DEL MES',
+            value: '\$${store.monthEarnings.toStringAsFixed(2)}',
+            subtitle: '${store.monthSalesUnits} ventas este mes',
+            accent: const Color(0xff7c3aed),
+            badgeColor: const Color(0xfff5f3ff),
+          ),
+          // 3. Productos en Catálogo
+          _MetricCard(
+            icon: Icons.inventory_2_rounded,
+            label: 'PRODUCTOS',
+            value: '${store.products.length}',
+            subtitle: 'En catálogo activo',
+            accent: _Colors.magenta,
+            badgeColor: const Color(0xfffff1f2),
+          ),
+          // 4. Unidades en Stock
+          _MetricCard(
+            icon: Icons.layers_rounded,
+            label: 'UNIDADES',
+            value: '${store.totalUnits}',
+            subtitle: 'Total en existencia',
+            accent: const Color(0xff2563eb),
+            badgeColor: const Color(0xffeff6ff),
+          ),
+          // 5. Valor Estimado
+          _MetricCard(
+            icon: Icons.attach_money_rounded,
+            label: 'VALOR ALMACÉN',
+            value: '\$${store.inventoryValue.toStringAsFixed(2)}',
+            subtitle: 'Estimado actual',
+            accent: const Color(0xff0d9488),
+            badgeColor: const Color(0xfff0fdfa),
+          ),
+          // 6. Stock Bajo
+          _MetricCard(
+            icon: Icons.warning_amber_rounded,
+            label: 'STOCK BAJO',
+            value: '${store.lowStockCount}',
+            subtitle: store.lowStockCount > 0 ? 'Requieren resurtido' : 'Inventario óptimo',
+            accent: store.lowStockCount > 0 ? _Colors.amber : _Colors.green,
+            badgeColor: store.lowStockCount > 0 ? const Color(0xfffffbeb) : const Color(0xfff0fdf4),
+            warning: store.lowStockCount > 0,
+            onTap: onShowProducts,
+          ),
+        ];
+
+        return SingleChildScrollView(
+          padding: EdgeInsets.all(isMobile ? 14 : 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _MetricCard(
-                icon: Icons.inventory_2_rounded,
-                label: 'PRODUCTOS',
-                value: '${store.products.length}',
-                accent: _Colors.magenta,
+              // ── Header ────────────────────────────────────────────────────
+              _PageHeader(
+                icon: Icons.dashboard_outlined,
+                title: 'RESUMEN DEL ALMACÉN',
+                subtitle:
+                    'Estado en tiempo real  ·  ${now.day}/${now.month}/${now.year}',
               ),
-              _MetricCard(
-                icon: Icons.layers_rounded,
-                label: 'UNIDADES',
-                value: '${store.totalUnits}',
-                accent: const Color(0xff60a5fa),
+              const SizedBox(height: 18),
+
+              // ── Metric Grid (2 cols en móvil, 3-6 en escritorio) ──────────
+              GridView.count(
+                crossAxisCount: isMobile ? 2 : (screenWidth < 1100 ? 3 : 6),
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisSpacing: isMobile ? 10 : 14,
+                mainAxisSpacing: isMobile ? 10 : 14,
+                childAspectRatio: isMobile ? 1.05 : 1.35,
+                children: cards,
               ),
-              _MetricCard(
-                icon: Icons.attach_money_rounded,
-                label: 'VALOR ESTIMADO',
-                value: '\$${store.inventoryValue.toStringAsFixed(2)}',
-                accent: const Color(0xff34d399),
-              ),
-              _MetricCard(
-                icon: Icons.warning_amber_rounded,
-                label: 'STOCK BAJO',
-                value: '${store.lowStockCount}',
-                accent: store.lowStockCount > 0
-                    ? _Colors.amber
-                    : _Colors.green,
-                warning: store.lowStockCount > 0,
-                onTap: onShowProducts,
-              ),
+
+              const SizedBox(height: 28),
+              const _SectionDivider(label: 'ATENCIÓN REQUERIDA'),
+              const SizedBox(height: 16),
+
+              // ── Low stock list ────────────────────────────────────────────
+              if (store.lowStockCount == 0)
+                Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: _Colors.bgCard,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                        color: _Colors.green.withValues(alpha: 0.3), width: 1),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: _Colors.green.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.check_circle_outline,
+                            color: _Colors.green, size: 22),
+                      ),
+                      const SizedBox(width: 14),
+                      const Expanded(
+                        child: Text(
+                          'Excelente: Todos los productos cuentan con existencias suficientes.',
+                          style: TextStyle(
+                              color: _Colors.textPrimary,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                ...store.products.where((item) => item.hasLowStock).map(
+                      (product) => Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: _LowStockTile(
+                            product: product, onTap: onShowProducts),
+                      ),
+                    ),
             ],
           ),
-
-          const SizedBox(height: 32),
-          const _SectionDivider(label: 'ATENCIÓN REQUERIDA'),
-          const SizedBox(height: 20),
-
-          // ── Low stock list ────────────────────────────────────────────
-          if (store.lowStockCount == 0)
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: _Colors.bgCard,
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(
-                    color: _Colors.green.withOpacity(0.25), width: 1),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: _Colors.green.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: const Icon(Icons.check_circle_outline,
-                        color: _Colors.green, size: 20),
-                  ),
-                  const SizedBox(width: 14),
-                  const Text(
-                    'Todos los productos tienen existencias suficientes.',
-                    style: TextStyle(
-                        color: _Colors.textSecondary, fontSize: 13),
-                  ),
-                ],
-              ),
-            )
-          else
-            ...store.products.where((item) => item.hasLowStock).map(
-                  (product) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: _LowStockTile(
-                        product: product, onTap: onShowProducts),
-                  ),
-                ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -1688,20 +1813,20 @@ class _LowStockTile extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
           color: _Colors.bgCard,
-          borderRadius: BorderRadius.circular(4),
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(
-              color: _Colors.amber.withOpacity(0.25), width: 1),
+              color: _Colors.amber.withValues(alpha: 0.35), width: 1),
         ),
         child: Row(
           children: [
             Container(
               padding: const EdgeInsets.all(7),
               decoration: BoxDecoration(
-                color: _Colors.amber.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(4),
+                color: _Colors.amber.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(6),
               ),
               child: const Icon(Icons.warning_amber_rounded,
-                  color: _Colors.amber, size: 16),
+                  color: _Colors.amber, size: 18),
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -1740,13 +1865,18 @@ class _MetricCard extends StatelessWidget {
     required this.label,
     required this.value,
     required this.accent,
+    this.subtitle,
+    this.badgeColor,
     this.warning = false,
     this.onTap,
   });
+
   final IconData icon;
   final String label;
   final String value;
   final Color accent;
+  final String? subtitle;
+  final Color? badgeColor;
   final bool warning;
   final VoidCallback? onTap;
 
@@ -1755,57 +1885,86 @@ class _MetricCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: 220,
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: _Colors.bgCard,
-          borderRadius: BorderRadius.circular(4),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: warning
-                ? accent.withOpacity(0.35)
-                : _Colors.stroke,
-            width: 1,
+            color: warning ? accent.withValues(alpha: 0.45) : const Color(0xffede0e7),
+            width: warning ? 1.5 : 1,
           ),
+          boxShadow: [
+            BoxShadow(
+              color: accent.withValues(alpha: 0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Row(
               children: [
                 Container(
                   padding: const EdgeInsets.all(7),
                   decoration: BoxDecoration(
-                    color: accent.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(4),
+                    color: badgeColor ?? accent.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(icon, color: accent, size: 18),
                 ),
                 if (onTap != null) ...[
                   const Spacer(),
                   Icon(Icons.arrow_forward_ios,
-                      color: _Colors.textSecondary, size: 12),
+                      color: _Colors.textSecondary.withValues(alpha: 0.7), size: 11),
                 ],
               ],
             ),
-            const SizedBox(height: 16),
-            Text(
-              value,
-              style: TextStyle(
-                color: accent,
-                fontSize: 26,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.5,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: const TextStyle(
-                color: _Colors.textSecondary,
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 2,
-              ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    value,
+                    style: TextStyle(
+                      color: accent,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: _Colors.textSecondary,
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.0,
+                  ),
+                ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: _Colors.textSecondary.withValues(alpha: 0.75),
+                      fontSize: 9,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ],
             ),
           ],
         ),
@@ -1861,7 +2020,7 @@ class _MovementsPage extends StatelessWidget {
                             Container(
                               padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
-                                color: color.withOpacity(0.1),
+                                color: color.withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: Icon(
@@ -1903,10 +2062,10 @@ class _MovementsPage extends StatelessWidget {
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 10, vertical: 5),
                               decoration: BoxDecoration(
-                                color: color.withOpacity(0.1),
+                                color: color.withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(4),
                                 border: Border.all(
-                                    color: color.withOpacity(0.25), width: 1),
+                                    color: color.withValues(alpha: 0.25), width: 1),
                               ),
                               child: Text(
                                 '${incoming ? '+' : '-'}${movement.quantity}',

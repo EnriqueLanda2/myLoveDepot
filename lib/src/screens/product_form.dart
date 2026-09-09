@@ -29,37 +29,19 @@ class _ProductFormState extends State<ProductForm> {
   late final TextEditingController sku;
   late final TextEditingController barcode;
   late final TextEditingController price;
+  late final TextEditingController originalPrice;
+  late final TextEditingController wholesalePrice;
   late final TextEditingController stock;
   late final TextEditingController minimum;
-  final photos = List<Uint8List?>.filled(5, null);
+
+  // Media
+  Uint8List? mediaBytes;
+  bool isVideo = false;
+  String existingUrl = '';
   String? category;
   int categoryEpoch = 0;
   bool saving = false;
-  String? photoError;
-
-  static const viewNames = [
-    'Frente',
-    'Atrás',
-    'Izquierda',
-    'Derecha',
-    'Arriba'
-  ];
-
-  static const viewIcons = [
-    Icons.camera_front_rounded,
-    Icons.flip_camera_android_rounded,
-    Icons.west_rounded,
-    Icons.east_rounded,
-    Icons.north_rounded,
-  ];
-
-  static const viewDescriptions = [
-    'Foto frontal principal (Obligatoria)',
-    'Vista posterior / espalda del objeto',
-    'Vista lateral izquierda del objeto',
-    'Vista lateral derecha del objeto',
-    'Vista superior (desde arriba)',
-  ];
+  String? mediaError;
 
   @override
   void initState() {
@@ -73,49 +55,288 @@ class _ProductFormState extends State<ProductForm> {
     category = product?.category.trim().isNotEmpty == true
         ? product!.category.trim()
         : null;
-    price = TextEditingController(text: product?.price.toStringAsFixed(2));
-    stock = TextEditingController(text: product?.stock.toString() ?? '0');
+    price = TextEditingController(
+        text: product != null ? product.price.toStringAsFixed(2) : '');
+    originalPrice = TextEditingController(
+        text: product?.originalPrice != null
+            ? product!.originalPrice!.toStringAsFixed(2)
+            : '');
+    wholesalePrice = TextEditingController(
+        text: product?.wholesalePrice != null
+            ? product!.wholesalePrice!.toStringAsFixed(2)
+            : '');
+    stock = TextEditingController(text: product?.stock.toString() ?? '1');
     minimum = TextEditingController(
-      text: product?.minimumStock.toString() ?? '5',
+      text: product?.minimumStock.toString() ?? '2',
     );
-    if (product?.photoBase64.isNotEmpty == true) {
-      try {
-        photos[0] = base64Decode(product!.photoBase64);
-      } on FormatException {
-        photos[0] = null;
+
+    if (product != null) {
+      existingUrl = product.imageUrl;
+      isVideo = product.isVideo;
+      if (product.photoBase64.isNotEmpty) {
+        try {
+          mediaBytes = base64Decode(product.photoBase64);
+        } on FormatException {
+          mediaBytes = null;
+        }
       }
     }
   }
 
   @override
   void dispose() {
-    for (final controller in [name, sku, barcode, price, stock, minimum]) {
+    for (final controller in [
+      name,
+      sku,
+      barcode,
+      price,
+      originalPrice,
+      wholesalePrice,
+      stock,
+      minimum
+    ]) {
       controller.dispose();
     }
     super.dispose();
   }
 
-  int get _capturedCount {
-    int count = 0;
-    for (int i = 0; i < 5; i++) {
-      if (photos[i] != null || _getExistingUrl(i).isNotEmpty) count++;
+  /// Validación minuciosa de seguridad de archivos en el cliente
+  String? _validateMediaBytes(Uint8List bytes, bool videoExpected) {
+    if (bytes.length < 16) {
+      return 'El archivo seleccionado está vacío o dañado.';
     }
-    return count;
+
+    // Límite de tamaño: 8 MB para foto, 25 MB para video
+    final maxSize = videoExpected ? 25 * 1024 * 1024 : 8 * 1024 * 1024;
+    if (bytes.length > maxSize) {
+      return videoExpected
+          ? 'El video excede el límite máximo permitido de 25 MB.'
+          : 'La imagen excede el límite máximo permitido de 8 MB.';
+    }
+
+    // 1. Detección de binarios ejecutables o cabeceras peligrosas
+    // Cabecera DOS PE 'MZ'
+    if (bytes[0] == 0x4d && bytes[1] == 0x5a) {
+      return 'Archivo no permitido: contiene firma de ejecutable DOS/Windows.';
+    }
+    // Cabecera Linux ELF
+    if (bytes.length >= 4 &&
+        bytes[0] == 0x7f &&
+        bytes[1] == 0x45 &&
+        bytes[2] == 0x4c &&
+        bytes[3] == 0x46) {
+      return 'Archivo no permitido: contiene firma de ejecutable Linux ELF.';
+    }
+
+    // 2. Escaneo de scripts inyectados / código malicioso en texto
+    final inspectLength = bytes.length > 32768 ? 32768 : bytes.length;
+    final snippet = String.fromCharCodes(bytes.sublist(0, inspectLength)).toLowerCase();
+    const forbidden = [
+      '<script',
+      '</script>',
+      '<?php',
+      '<?=',
+      '<%',
+      '<svg',
+      '<iframe',
+      '<object',
+      'eval(',
+      'base64_decode(',
+      '#!/bin/',
+      'powershell',
+      'cmd.exe',
+    ];
+    for (final bad in forbidden) {
+      if (snippet.contains(bad)) {
+        return 'Archivo bloqueado por seguridad: contiene código o script no permitido.';
+      }
+    }
+
+    // 3. Verificación de Magic Bytes
+    if (videoExpected) {
+      // MP4 / MOV: 'ftyp', 'moov', 'mdat' at offset 4
+      bool isMp4 = false;
+      if (bytes.length >= 12) {
+        final box = String.fromCharCodes(bytes.sublist(4, 8));
+        isMp4 = box == 'ftyp' || box == 'moov' || box == 'mdat' || box == 'wide';
+      }
+      // WebM: 1A 45 DF A3
+      final isWebm = bytes[0] == 0x1a &&
+          bytes[1] == 0x45 &&
+          bytes[2] == 0xdf &&
+          bytes[3] == 0xa3;
+
+      if (!isMp4 && !isWebm) {
+        return 'El archivo no es un video MP4, MOV o WebM válido.';
+      }
+    } else {
+      // Imagen: JPEG, PNG, WebP, GIF
+      final isJpeg = bytes[0] == 0xff && bytes[1] == 0xd8 && bytes[2] == 0xff;
+      final isPng = bytes.length >= 8 &&
+          bytes[0] == 0x89 &&
+          bytes[1] == 0x50 &&
+          bytes[2] == 0x4e &&
+          bytes[3] == 0x47;
+      final isWebp = bytes.length >= 12 &&
+          String.fromCharCodes(bytes.sublist(0, 4)) == 'RIFF' &&
+          String.fromCharCodes(bytes.sublist(8, 12)) == 'WEBP';
+      final isGif = bytes.length >= 6 &&
+          (String.fromCharCodes(bytes.sublist(0, 6)) == 'GIF87a' ||
+              String.fromCharCodes(bytes.sublist(0, 6)) == 'GIF89a');
+
+      if (!isJpeg && !isPng && !isWebp && !isGif) {
+        return 'El archivo no es una imagen JPEG, PNG, WebP o GIF válida.';
+      }
+    }
+
+    return null;
   }
 
-  String _getExistingUrl(int index) {
-    if (widget.product == null) return '';
-    if (index < widget.product!.imageUrls.length) {
-      return widget.product!.imageUrls[index];
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(
+        source: source,
+        maxWidth: 1800,
+        maxHeight: 1800,
+        imageQuality: 90,
+      );
+      if (picked == null) return;
+
+      final bytes = await picked.readAsBytes();
+      final error = _validateMediaBytes(bytes, false);
+      if (error != null) {
+        setState(() => mediaError = error);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(error), backgroundColor: const Color(0xffb00020)),
+          );
+        }
+        return;
+      }
+
+      setState(() {
+        mediaBytes = bytes;
+        isVideo = false;
+        existingUrl = '';
+        mediaError = null;
+      });
+    } catch (e) {
+      setState(() => mediaError = 'Error al leer la imagen: $e');
     }
-    if (index == 0) return widget.product?.imageUrl ?? '';
-    return '';
+  }
+
+  Future<void> _pickVideo(ImageSource source) async {
+    try {
+      final picker = ImagePicker();
+      final picked = await picker.pickVideo(
+        source: source,
+        maxDuration: const Duration(minutes: 2),
+      );
+      if (picked == null) return;
+
+      final bytes = await picked.readAsBytes();
+      final error = _validateMediaBytes(bytes, true);
+      if (error != null) {
+        setState(() => mediaError = error);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(error), backgroundColor: const Color(0xffb00020)),
+          );
+        }
+        return;
+      }
+
+      setState(() {
+        mediaBytes = bytes;
+        isVideo = true;
+        existingUrl = '';
+        mediaError = null;
+      });
+    } catch (e) {
+      setState(() => mediaError = 'Error al leer el video: $e');
+    }
+  }
+
+  void _showMediaSourceDialog({required bool forVideo}) {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                forVideo ? 'SELECCIONAR VIDEO' : 'SELECCIONAR FOTO',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 14,
+                  letterSpacing: 1.2,
+                  color: Color(0xff49343f),
+                ),
+              ),
+              const SizedBox(height: 12),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xffd94f87).withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    forVideo ? Icons.videocam_rounded : Icons.camera_alt_rounded,
+                    color: const Color(0xffd94f87),
+                  ),
+                ),
+                title: Text(forVideo ? 'Grabar con la Cámara' : 'Tomar Foto'),
+                subtitle: const Text('Captura el producto en tiempo real'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  if (forVideo) {
+                    _pickVideo(ImageSource.camera);
+                  } else {
+                    _pickImage(ImageSource.camera);
+                  }
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.photo_library_rounded, color: Colors.blue),
+                ),
+                title: const Text('Elegir de la Galería'),
+                subtitle: Text(
+                  forVideo ? 'Archivos MP4, WebM o MOV' : 'Archivos JPG, PNG o WebP',
+                ),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  if (forVideo) {
+                    _pickVideo(ImageSource.gallery);
+                  } else {
+                    _pickImage(ImageSource.gallery);
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     const magenta = Color(0xffd94f87);
-    final count = _capturedCount;
+    final hasMedia = mediaBytes != null || existingUrl.isNotEmpty;
 
     return AlertDialog(
       title: Row(
@@ -126,7 +347,7 @@ class _ProductFormState extends State<ProductForm> {
               color: magenta.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Icon(Icons.view_in_ar_rounded, color: magenta, size: 20),
+            child: const Icon(Icons.inventory_2_rounded, color: magenta, size: 20),
           ),
           const SizedBox(width: 12),
           Text(
@@ -148,7 +369,7 @@ class _ProductFormState extends State<ProductForm> {
               spacing: 12,
               runSpacing: 14,
               children: [
-                // ── Sección Guía de Escaneo 3D ────────────────────────────────
+                // ── Sección Multimedia (Foto o Video) ────────────────────────
                 SizedBox(
                   width: 568,
                   child: Container(
@@ -163,12 +384,11 @@ class _ProductFormState extends State<ProductForm> {
                       children: [
                         Row(
                           children: [
-                            const Icon(Icons.center_focus_strong_rounded,
-                                color: magenta, size: 22),
+                            const Icon(Icons.perm_media_rounded, color: magenta, size: 20),
                             const SizedBox(width: 10),
                             const Expanded(
                               child: Text(
-                                'FOTOGRAFÍAS DE TODOS LOS LADOS (360°)',
+                                'FOTOGRAFÍA O VIDEO DEL PRODUCTO',
                                 style: TextStyle(
                                   fontWeight: FontWeight.w800,
                                   fontSize: 12,
@@ -177,50 +397,160 @@ class _ProductFormState extends State<ProductForm> {
                                 ),
                               ),
                             ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: count == 5
-                                    ? Colors.green.shade50
-                                    : (count > 0 ? Colors.amber.shade50 : magenta.withValues(alpha: 0.1)),
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(
-                                  color: count == 5
-                                      ? Colors.green.shade400
-                                      : (count > 0 ? Colors.amber.shade400 : magenta.withValues(alpha: 0.3)),
+                            if (hasMedia)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.green.shade50,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: Colors.green.shade400),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      isVideo ? Icons.videocam : Icons.photo,
+                                      size: 13,
+                                      color: Colors.green.shade800,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      isVideo ? 'VIDEO ADJUNTO' : 'FOTO ADJUNTA',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w800,
+                                        color: Colors.green.shade800,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              child: Text(
-                                count == 5
-                                    ? '5 / 5 COMPLETO'
-                                    : '$count / 5 VISTAS',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w800,
-                                  color: count == 5
-                                      ? Colors.green.shade800
-                                      : (count > 0 ? Colors.amber.shade900 : magenta),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Sube una fotografía de alta calidad o un video del producto. Solo se admiten archivos verificados libres de código corrupto o malicioso.',
+                          style: TextStyle(fontSize: 12, color: Color(0xff7a5c6b), height: 1.3),
+                        ),
+                        const SizedBox(height: 14),
+
+                        // Previsualización multimedia
+                        if (hasMedia) ...[
+                          Container(
+                            height: 180,
+                            width: double.infinity,
+                            decoration: BoxDecoration(
+                              color: const Color(0xff18181b),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: magenta.withValues(alpha: 0.4)),
+                            ),
+                            clipBehavior: Clip.antiAlias,
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                if (mediaBytes != null && !isVideo)
+                                  Image.memory(
+                                    mediaBytes!,
+                                    fit: BoxFit.contain,
+                                    width: double.infinity,
+                                    height: 180,
+                                  )
+                                else if (existingUrl.isNotEmpty && !isVideo)
+                                  Image.network(
+                                    existingUrl,
+                                    fit: BoxFit.contain,
+                                    width: double.infinity,
+                                    height: 180,
+                                    errorBuilder: (_, __, ___) => const Center(
+                                      child: Icon(Icons.broken_image_rounded,
+                                          color: Colors.white54, size: 40),
+                                    ),
+                                  )
+                                else
+                                  Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(14),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withValues(alpha: 0.15),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(Icons.play_arrow_rounded,
+                                            color: Colors.white, size: 36),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        isVideo ? 'Video cargado con éxito' : 'Medio cargado',
+                                        style: const TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+
+                                // Botón eliminar medio
+                                Positioned(
+                                  top: 8,
+                                  right: 8,
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withValues(alpha: 0.7),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: IconButton(
+                                      tooltip: 'Quitar archivo',
+                                      icon: const Icon(Icons.close, color: Colors.white, size: 18),
+                                      onPressed: () {
+                                        setState(() {
+                                          mediaBytes = null;
+                                          existingUrl = '';
+                                          isVideo = false;
+                                        });
+                                      },
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+
+                        // Botones para subir Foto o Video
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () => _showMediaSourceDialog(forVideo: false),
+                                icon: const Icon(Icons.add_a_photo_rounded, size: 18),
+                                label: Text(hasMedia ? 'CAMBIAR FOTO' : 'SUBIR FOTO'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: magenta,
+                                  side: const BorderSide(color: magenta),
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () => _showMediaSourceDialog(forVideo: true),
+                                icon: const Icon(Icons.video_library_rounded, size: 18),
+                                label: Text(hasMedia ? 'CAMBIAR VIDEO' : 'SUBIR VIDEO'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: const Color(0xff0284c7),
+                                  side: const BorderSide(color: Color(0xff0284c7)),
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
                                 ),
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 10),
-                        const Text(
-                          'Para que el avatar 3D sea idéntico a tu producto real, toma la foto de cada uno de sus lados: Frente, Atrás, Izquierda, Derecha y Arriba. El motor 3D proyectará cada foto sobre su cara correspondiente.',
-                          style: TextStyle(fontSize: 12, color: Color(0xff7a5c6b), height: 1.3),
-                        ),
-                        const SizedBox(height: 14),
 
-                        // Mosaico de botones para las 5 fotos
-                        Wrap(
-                          spacing: 10,
-                          runSpacing: 10,
-                          children: List.generate(5, _photoTile),
-                        ),
-
-                        if (photoError != null) ...[
+                        if (mediaError != null) ...[
                           const SizedBox(height: 10),
                           Container(
                             padding: const EdgeInsets.all(10),
@@ -235,7 +565,7 @@ class _ProductFormState extends State<ProductForm> {
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
-                                    photoError!,
+                                    mediaError!,
                                     style: const TextStyle(color: Color(0xffb00020), fontSize: 12),
                                   ),
                                 ),
@@ -254,7 +584,11 @@ class _ProductFormState extends State<ProductForm> {
                 _field(barcode, 'Código de barras o QR'),
                 _categoryField(),
                 _field(price, 'Precio (\$)', numeric: true),
-                _field(stock, 'Existencia inicial', integer: true),
+                _field(originalPrice, 'Precio Original / Anterior (\$) (Opcional)',
+                    numeric: true, required: false),
+                _field(wholesalePrice, 'Precio Mayoreo (\$) (Opcional)',
+                    numeric: true, required: false),
+                _field(stock, 'Existencia (Stock)', integer: true),
                 _field(minimum, 'Stock mínimo de alerta', integer: true),
               ],
             ),
@@ -273,9 +607,9 @@ class _ProductFormState extends State<ProductForm> {
                   dimension: 18,
                   child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                 )
-              : const Icon(Icons.view_in_ar_rounded, size: 18),
+              : const Icon(Icons.check_circle_rounded, size: 18),
           label: Text(
-            saving ? 'GENERANDO AVATAR 3D…' : 'GUARDAR Y CREAR AVATAR 3D',
+            saving ? 'GUARDANDO…' : 'GUARDAR PRODUCTO',
             style: const TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1.1),
           ),
         ),
@@ -416,340 +750,10 @@ class _ProductFormState extends State<ProductForm> {
     );
   }
 
-  Widget _photoTile(int index) {
-    const magenta = Color(0xffd94f87);
-    final bytes = photos[index];
-    final existing = _getExistingUrl(index);
-    final hasPhoto = bytes != null || existing.isNotEmpty;
-
-    return SizedBox(
-      width: 100,
-      child: Column(
-        children: [
-          InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: () => _openCameraGuide(index),
-            child: Container(
-              height: 90,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                color: hasPhoto ? Colors.white : const Color(0xfffff8fa),
-                border: Border.all(
-                  color: hasPhoto
-                      ? magenta
-                      : (index == 0 ? magenta.withValues(alpha: 0.5) : const Color(0xffe8d0da)),
-                  width: hasPhoto ? 2 : 1,
-                ),
-                image: bytes != null
-                    ? DecorationImage(image: MemoryImage(bytes), fit: BoxFit.cover)
-                    : existing.isNotEmpty
-                        ? DecorationImage(image: NetworkImage(existing), fit: BoxFit.cover)
-                        : null,
-              ),
-              child: Stack(
-                children: [
-                  if (!hasPhoto)
-                    Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(viewIcons[index],
-                              color: index == 0 ? magenta : const Color(0xff7a5c6b), size: 26),
-                          const SizedBox(height: 4),
-                          Text(
-                            viewNames[index],
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              color: index == 0 ? magenta : const Color(0xff7a5c6b),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  if (hasPhoto)
-                    Positioned(
-                      top: 4,
-                      right: 4,
-                      child: Container(
-                        padding: const EdgeInsets.all(3),
-                        decoration: const BoxDecoration(
-                          color: magenta,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.check, color: Colors.white, size: 12),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '${index + 1}. ${viewNames[index]} (*)',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              color: hasPhoto ? const Color(0xff2e7d32) : (index == 0 ? magenta : const Color(0xff99406b)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Abre la ventana de asistencia con Marco de Encuadre Interactivo
-  Future<void> _openCameraGuide(int index) async {
-    const magenta = Color(0xffd94f87);
-
-    final source = await showDialog<ImageSource>(
-      context: context,
-      builder: (dialogContext) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: Container(
-          width: 480,
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Header
-              Row(
-                children: [
-                  Icon(viewIcons[index], color: magenta, size: 28),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'VISTA ${index + 1}: ${viewNames[index].toUpperCase()}',
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 1.2,
-                            color: Color(0xff49343f),
-                          ),
-                        ),
-                        Text(
-                          viewDescriptions[index],
-                          style: const TextStyle(fontSize: 11, color: Color(0xff7a5c6b)),
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(dialogContext),
-                    icon: const Icon(Icons.close),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 16),
-
-              // Marco de encuadre visual interactivo
-              Container(
-                height: 220,
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: const Color(0xfffaf5f7),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: magenta.withValues(alpha: 0.3), width: 1.5),
-                ),
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    // Grid / retícula de referencia
-                    CustomPaint(
-                      size: const Size(double.infinity, 220),
-                      painter: _FramingGridPainter(color: magenta),
-                    ),
-
-                    // Icono de silueta orientativa
-                    Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(viewIcons[index], size: 54, color: magenta.withValues(alpha: 0.35)),
-                        const SizedBox(height: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.06),
-                                blurRadius: 8,
-                              )
-                            ],
-                          ),
-                          child: Text(
-                            'CENTRA EL PRODUCTO AQUÍ',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w800,
-                              color: magenta.withValues(alpha: 0.9),
-                              letterSpacing: 1.0,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              // Tips rápidos
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xfffff6fa),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Column(
-                  children: [
-                    _TipItem(icon: Icons.wb_sunny_outlined, text: 'Usa buena iluminación pareja sin sombras oscuras.'),
-                    SizedBox(height: 4),
-                    _TipItem(icon: Icons.crop_square_rounded, text: 'Fondo liso que contraste con el producto.'),
-                    SizedBox(height: 4),
-                    _TipItem(icon: Icons.fit_screen_rounded, text: 'No cortes bordes ni hagas zoom excesivo.'),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 20),
-
-              // Botones de acción
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => Navigator.pop(dialogContext, ImageSource.gallery),
-                      icon: const Icon(Icons.photo_library_outlined, size: 18),
-                      label: const Text('GALERÍA'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: () => Navigator.pop(dialogContext, ImageSource.camera),
-                      icon: const Icon(Icons.camera_alt_rounded, size: 18),
-                      label: const Text('TOMAR FOTO'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-
-    if (source != null) {
-      await _pickPhoto(source, index);
-    }
-  }
-
-  Future<void> _pickPhoto(ImageSource source, int index) async {
-    final image = await ImagePicker().pickImage(
-      source: source,
-      maxWidth: 1000,
-      imageQuality: 85,
-    );
-    if (image == null) return;
-    final bytes = await image.readAsBytes();
-    if (bytes.length > 8 * 1024 * 1024 || !_looksLikeImage(bytes)) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text(
-              'Selecciona una imagen JPEG, PNG o WebP válida de máximo 8 MB.'),
-        ));
-      }
-      return;
-    }
-    if (mounted) {
-      setState(() {
-        photos[index] = bytes;
-        photoError = null;
-      });
-    }
-  }
-
-  bool _looksLikeImage(Uint8List bytes) {
-    if (bytes.length < 12) return false;
-    final jpeg = bytes[0] == 0xff && bytes[1] == 0xd8 && bytes[2] == 0xff;
-    final png = bytes[0] == 0x89 &&
-        bytes[1] == 0x50 &&
-        bytes[2] == 0x4e &&
-        bytes[3] == 0x47;
-    final webp = String.fromCharCodes(bytes.sublist(0, 4)) == 'RIFF' &&
-        String.fromCharCodes(bytes.sublist(8, 12)) == 'WEBP';
-    return jpeg || png || webp;
-  }
-
   Future<void> _save() async {
     if (!formKey.currentState!.validate()) return;
     final current = widget.product;
-    final hasFrontPhoto = photos[0] != null ||
-        (current?.imageUrls.isNotEmpty == true) ||
-        (current?.imageUrl.isNotEmpty == true);
-    if (!hasFrontPhoto) {
-      setState(() => photoError =
-          'Es obligatorio capturar al menos la foto frontal del producto.');
-      return;
-    }
 
-    // Solicitar fotos de todos los lados para renderizado exacto
-    final missingIndices = <int>[];
-    for (var i = 0; i < 5; i++) {
-      if (photos[i] == null && _getExistingUrl(i).isEmpty) {
-        missingIndices.add(i);
-      }
-    }
-
-    if (missingIndices.isNotEmpty) {
-      final missingNames = missingIndices.map((i) => viewNames[i]).join(', ');
-      final proceed = await showDialog<bool>(
-        context: context,
-        builder: (dialogCtx) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Row(
-            children: [
-              Icon(Icons.camera_alt_outlined, color: Color(0xffd94f87)),
-              SizedBox(width: 10),
-              Flexible(child: Text('¿CAPTURAR TODOS LOS LADOS?')),
-            ],
-          ),
-          content: Text(
-            'Para que el modelo 3D quede exactamente igual a tu producto real en todos sus ángulos, se requiere la foto de cada lado.\n\n'
-            'Lados faltantes: $missingNames.\n\n'
-            '¿Deseas capturar las fotos faltantes ahora para un acabado 100% exacto?',
-            style: const TextStyle(height: 1.4),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogCtx, true),
-              child: const Text('CONTINUAR DE TODOS MODOS'),
-            ),
-            FilledButton.icon(
-              onPressed: () => Navigator.pop(dialogCtx, false),
-              icon: const Icon(Icons.add_a_photo_rounded, size: 16),
-              label: const Text('CAPTURAR FALTANTES'),
-            ),
-          ],
-        ),
-      );
-
-      if (proceed != true) {
-        if (missingIndices.isNotEmpty) {
-          _openCameraGuide(missingIndices.first);
-        }
-        return;
-      }
-    }
-    if (!mounted) return;
     if (widget.store.barcodeBelongsToAnotherProduct(
       barcode.text,
       current?.id,
@@ -761,10 +765,15 @@ class _ProductFormState extends State<ProductForm> {
       );
       return;
     }
+
     setState(() {
       saving = true;
-      photoError = null;
+      mediaError = null;
     });
+
+    final orig = double.tryParse(originalPrice.text);
+    final whol = double.tryParse(wholesalePrice.text);
+
     final failure = await widget.store.saveProduct(
       Product(
         id: current?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
@@ -772,96 +781,27 @@ class _ProductFormState extends State<ProductForm> {
         sku: sku.text.trim(),
         category: category!.trim(),
         price: double.parse(price.text),
+        originalPrice: orig,
+        wholesalePrice: whol,
         stock: int.parse(stock.text),
         minimumStock: int.parse(minimum.text),
         barcode: barcode.text.trim(),
-        photoBase64: photos[0] == null ? '' : base64Encode(photos[0]!),
-        imageUrl: current?.imageUrl ?? '',
-        modelUrl: current?.modelUrl ?? '',
+        photoBase64: mediaBytes == null ? (current?.photoBase64 ?? '') : base64Encode(mediaBytes!),
+        imageUrl: existingUrl.isNotEmpty ? existingUrl : (current?.imageUrl ?? ''),
+        mediaType: isVideo ? 'video' : 'image',
+        modelUrl: '',
         imageUrls: current?.imageUrls ?? [],
-        pendingImagesBase64: photos
-            .map((item) => item == null ? '' : base64Encode(item))
-            .toList(),
+        pendingImagesBase64: mediaBytes != null ? [base64Encode(mediaBytes!)] : [],
       ),
     );
+
     if (!mounted) return;
     setState(() => saving = false);
     if (failure != null) {
-      setState(() => photoError = failure);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(failure)));
+      setState(() => mediaError = failure);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(failure)));
       return;
     }
     Navigator.pop(context);
   }
-}
-
-class _TipItem extends StatelessWidget {
-  const _TipItem({required this.icon, required this.text});
-  final IconData icon;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(icon, size: 14, color: const Color(0xffd94f87)),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            text,
-            style: const TextStyle(fontSize: 11, color: Color(0xff49343f)),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// Pintor personalizado para el marco de encuadre con retícula y esquinas de enfoque
-class _FramingGridPainter extends CustomPainter {
-  const _FramingGridPainter({required this.color});
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final borderPaint = Paint()
-      ..color = color.withValues(alpha: 0.4)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
-
-    final cornerPaint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3.0;
-
-    // Caja central de encuadre (margen 16%)
-    final marginX = size.width * 0.16;
-    final marginY = size.height * 0.12;
-    final rect = Rect.fromLTRB(marginX, marginY, size.width - marginX, size.height - marginY);
-
-    // Dibujar borde rectangular suave
-    canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(12)), borderPaint);
-
-    // Esquinas reforzadas (crosshairs de cámara)
-    const cornerLength = 18.0;
-    // Top-left
-    canvas.drawLine(Offset(rect.left, rect.top), Offset(rect.left + cornerLength, rect.top), cornerPaint);
-    canvas.drawLine(Offset(rect.left, rect.top), Offset(rect.left, rect.top + cornerLength), cornerPaint);
-
-    // Top-right
-    canvas.drawLine(Offset(rect.right, rect.top), Offset(rect.right - cornerLength, rect.top), cornerPaint);
-    canvas.drawLine(Offset(rect.right, rect.top), Offset(rect.right, rect.top + cornerLength), cornerPaint);
-
-    // Bottom-left
-    canvas.drawLine(Offset(rect.left, rect.bottom), Offset(rect.left + cornerLength, rect.bottom), cornerPaint);
-    canvas.drawLine(Offset(rect.left, rect.bottom), Offset(rect.left, rect.bottom - cornerLength), cornerPaint);
-
-    // Bottom-right
-    canvas.drawLine(Offset(rect.right, rect.bottom), Offset(rect.right - cornerLength, rect.bottom), cornerPaint);
-    canvas.drawLine(Offset(rect.right, rect.bottom), Offset(rect.right, rect.bottom - cornerLength), cornerPaint);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

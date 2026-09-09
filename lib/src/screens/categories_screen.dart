@@ -277,10 +277,10 @@ class _CategoryTile extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: _C.magenta.withOpacity(0.1),
+              color: _C.magenta.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(4),
               border:
-                  Border.all(color: _C.magenta.withOpacity(0.2), width: 1),
+                  Border.all(color: _C.magenta.withValues(alpha: 0.2), width: 1),
             ),
             child: const Icon(Icons.label_outline,
                 color: _C.magenta, size: 16),

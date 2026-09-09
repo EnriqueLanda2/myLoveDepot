@@ -12,6 +12,7 @@ import { z } from 'zod';
 import { databaseSsl } from './database-config.js';
 import { ModelBuildError, buildModel } from './model-generator.js';
 import { ScanQualityError, validateProductScan } from './scan-quality.js';
+import { FileValidationError, validateAndSanitizeMedia } from './security-validator.js';
 
 const required = [
   'DATABASE_URL', 'CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY',
@@ -375,58 +376,76 @@ app.post('/api/products/:id/movements', async (request, response) => {
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 8 * 1024 * 1024, files: 1, fields: 3 },
+  limits: { fileSize: 25 * 1024 * 1024, files: 1, fields: 4 },
 });
 
-app.post('/api/uploads/product-image', upload.single('image'), async (request, response) => {
-  if (!request.file) {
-    response.status(400).json({ error: 'Falta una imagen válida' });
+async function handleMediaUpload(request: Request, response: Response) {
+  const file = request.file;
+  if (!file) {
+    response.status(400).json({ error: 'Falta un archivo multimedia válido (imagen o video)' });
     return;
   }
   const productId = z.string().min(1).max(64).parse(request.body.productId);
-  const viewIndex = z.coerce.number().int().min(0).max(4).parse(request.body.viewIndex ?? 0);
-  let safeImage: Buffer;
-  let scanMetrics;
-  try {
-    const validated = await validateProductScan(request.file.buffer);
-    safeImage = validated.safeImage;
-    scanMetrics = validated.metrics;
-  } catch (error) {
-    response.status(400).json({
-      error: error instanceof ScanQualityError
-        ? error.message
-        : 'El archivo no es una imagen JPEG, PNG o WebP real y válida',
-    });
-    return;
+  const viewIndex = z.coerce.number().int().min(0).max(10).parse(request.body.viewIndex ?? 0);
+
+  // Validación estricta: Magic Bytes, corrupción, escaneo de código malicioso y re-codificación limpia
+  const validated = await validateAndSanitizeMedia(file.buffer, file.originalname);
+
+  const isVideo = validated.mediaType === 'video';
+  const resourceType = isVideo ? 'video' : 'image';
+  const publicId = `${productId}/media-${viewIndex}-${Date.now()}`;
+
+  const uploadOptions: Record<string, unknown> = {
+    folder: 'my-love-depot/products',
+    public_id: publicId,
+    overwrite: true,
+    resource_type: resourceType,
+  };
+  if (!isVideo) {
+    uploadOptions.format = 'webp';
   }
+
   const result = await new Promise<{ secure_url: string; public_id: string }>((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
-      { folder: 'my-love-depot/products', public_id: `${productId}/view-${viewIndex}`, overwrite: true, resource_type: 'image', format: 'webp' },
+      uploadOptions,
       (error, uploaded) => {
         if (error || !uploaded) reject(error ?? new Error('Cloudinary no respondió'));
         else resolve(uploaded);
       },
     );
-    stream.end(safeImage);
+    stream.end(validated.safeBuffer);
   });
-  await pool.execute(`INSERT INTO product_images (product_id, view_index, image_url, image_public_id)
-    VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE image_url=VALUES(image_url), image_public_id=VALUES(image_public_id)`,
-  [productId, viewIndex, result.secure_url, result.public_id]);
+
+  await pool.execute(
+    `INSERT INTO product_images (product_id, view_index, image_url, image_public_id)
+     VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE image_url=VALUES(image_url), image_public_id=VALUES(image_public_id)`,
+    [productId, viewIndex, result.secure_url, result.public_id],
+  );
+
   if (viewIndex === 0) {
     await pool.execute('UPDATE products SET image_url = ?, image_public_id = ? WHERE id = ?',
       [result.secure_url, result.public_id, productId]);
   }
+
   response.status(201).json({
     url: result.secure_url,
     publicId: result.public_id,
-    scanQuality: scanMetrics,
+    mediaType: validated.mediaType,
+    format: validated.format,
   });
-});
+}
+
+app.post('/api/uploads/product-image', upload.single('image'), handleMediaUpload);
+app.post('/api/uploads/product-media', upload.single('media'), handleMediaUpload);
 
 app.use((error: unknown, _request: Request, response: Response, _next: NextFunction) => {
   console.error(error);
   if (error instanceof z.ZodError) {
     response.status(400).json({ error: 'Datos inválidos', details: error.issues });
+    return;
+  }
+  if (error instanceof FileValidationError) {
+    response.status(400).json({ error: error.message });
     return;
   }
   if (error instanceof multer.MulterError) {
