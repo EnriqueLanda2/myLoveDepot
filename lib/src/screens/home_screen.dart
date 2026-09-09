@@ -43,6 +43,9 @@ class _HomeScreenState extends State<HomeScreen> {
   int selectedIndex = 0;
   String query = '';
   bool lowStockOnly = false;
+  String selectedCategory = 'Todas las categorías';
+  int currentPage = 1;
+  static const int pageSize = 30;
 
   @override
   Widget build(BuildContext context) {
@@ -298,14 +301,27 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _productsPage() {
     final normalized = query.trim().toLowerCase();
-    final filtered = widget.store.products.where((product) {
+    final catNormalized = selectedCategory.trim().toLowerCase();
+    final isCategoryFilter = catNormalized.isNotEmpty &&
+        catNormalized != 'todas' &&
+        catNormalized != 'todas las categorías';
+
+    final filteredAll = widget.store.products.where((product) {
       final matchesQuery = normalized.isEmpty ||
           product.name.toLowerCase().contains(normalized) ||
           product.sku.toLowerCase().contains(normalized) ||
           product.category.toLowerCase().contains(normalized);
-      return matchesQuery && (!lowStockOnly || product.hasLowStock);
+      final matchesCategory = !isCategoryFilter ||
+          product.category.toLowerCase() == catNormalized;
+      return matchesQuery && matchesCategory && (!lowStockOnly || product.hasLowStock);
     }).toList()
       ..sort((a, b) => a.name.compareTo(b.name));
+
+    final totalCount = filteredAll.length;
+    final totalPages = (totalCount / pageSize).ceil().clamp(1, 9999);
+    final activePage = currentPage.clamp(1, totalPages);
+    final startIndex = (activePage - 1) * pageSize;
+    final pagedProducts = filteredAll.skip(startIndex).take(pageSize).toList();
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -332,23 +348,38 @@ class _HomeScreenState extends State<HomeScreen> {
                 icon: Icons.storefront_rounded,
                 title: 'CATÁLOGO DE PRODUCTOS',
                 subtitle:
-                    '${widget.store.products.length} productos disponibles  ·  toca AGREGAR para registrar venta',
+                    '${widget.store.products.length} productos registrados  ·  Mostrando ${pagedProducts.length} de $totalCount',
               ),
               const SizedBox(height: 16),
 
-              // ── Filters row ──────────────────────────────────────────────────
+              // ── Filters row (Buscador, Categoría Select y Stock Bajo) ─────────
               Row(
                 children: [
                   Expanded(
                     child: _SearchField(
-                      onChanged: (value) => setState(() => query = value),
+                      onChanged: (value) => setState(() {
+                        query = value;
+                        currentPage = 1;
+                      }),
                     ),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 8),
+                  _CategorySelect(
+                    selectedCategory: selectedCategory,
+                    categories: widget.store.categoryNames,
+                    onChanged: (value) => setState(() {
+                      selectedCategory = value;
+                      currentPage = 1;
+                    }),
+                  ),
+                  const SizedBox(width: 8),
                   _FilterChip(
                     label: 'STOCK BAJO',
                     selected: lowStockOnly,
-                    onSelected: (value) => setState(() => lowStockOnly = value),
+                    onSelected: (value) => setState(() {
+                      lowStockOnly = value;
+                      currentPage = 1;
+                    }),
                   ),
                 ],
               ),
@@ -356,80 +387,128 @@ class _HomeScreenState extends State<HomeScreen> {
 
               // ── Products Grid ────────────────────────────────────────────────
               Expanded(
-                child: filtered.isEmpty
+                child: pagedProducts.isEmpty
                     ? const _EmptyState(
                         icon: Icons.search_off_rounded,
                         message: 'No se encontraron productos en el catálogo.',
                       )
-                    : GridView.builder(
-                        padding: const EdgeInsets.only(bottom: 24),
-                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: crossAxisCount,
-                          crossAxisSpacing: isMobile ? 10 : 16,
-                          mainAxisSpacing: isMobile ? 12 : 18,
-                          childAspectRatio: isMobile ? 0.58 : 0.62,
-                        ),
-                        itemCount: filtered.length,
-                        itemBuilder: (context, index) {
-                          final product = filtered[index];
-                          return _CatalogProductCard(
-                            product: product,
-                            onOutgoing: () async {
-                              final err = await widget.store.quickSale(product);
-                              if (!context.mounted) return;
-                              if (err != null) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(err),
-                                    backgroundColor: _Colors.red,
-                                  ),
+                    : Column(
+                        children: [
+                          Expanded(
+                            child: GridView.builder(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: crossAxisCount,
+                                crossAxisSpacing: isMobile ? 10 : 16,
+                                mainAxisSpacing: isMobile ? 12 : 18,
+                                childAspectRatio: isMobile ? 0.58 : 0.62,
+                              ),
+                              itemCount: pagedProducts.length,
+                              itemBuilder: (context, index) {
+                                final product = pagedProducts[index];
+                                return _CatalogProductCard(
+                                  product: product,
+                                  onOutgoing: () async {
+                                    final err = await widget.store.quickSale(product);
+                                    if (!context.mounted) return;
+                                    if (err != null) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text(err),
+                                          backgroundColor: _Colors.red,
+                                        ),
+                                      );
+                                    } else {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            '¡Salida registrada! 1x "${product.name}" agregada a ganancias.',
+                                          ),
+                                          backgroundColor: _Colors.green,
+                                          duration: const Duration(seconds: 2),
+                                        ),
+                                      );
+                                    }
+                                  },
+                                  onIncoming: () async {
+                                    final err = await widget.store.moveStock(
+                                      product: product,
+                                      quantity: 1,
+                                      type: MovementType.incoming,
+                                      note: 'Entrada rápida desde catálogo',
+                                    );
+                                    if (!context.mounted) return;
+                                    if (err != null) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text(err),
+                                          backgroundColor: _Colors.red,
+                                        ),
+                                      );
+                                    } else {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            '¡Entrada registrada! 1x "${product.name}" agregada a inventario.',
+                                          ),
+                                          backgroundColor: _Colors.green,
+                                          duration: const Duration(seconds: 2),
+                                        ),
+                                      );
+                                    }
+                                  },
+                                  onStockDialog: () =>
+                                      showStockDialog(context, widget.store, product),
+                                  onEdit: () => _openProductForm(context, product),
+                                  onDelete: () => _confirmDelete(context, product),
+                                  onViewMedia: () => _showMediaViewer(context, product),
                                 );
-                              } else {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      '¡Salida registrada! 1x "${product.name}" agregada a ganancias.',
-                                    ),
-                                    backgroundColor: _Colors.green,
-                                    duration: const Duration(seconds: 2),
+                              },
+                            ),
+                          ),
+
+                          // ── Paginación de 30 Productos ─────────────────────
+                          if (totalPages > 1) ...[
+                            const SizedBox(height: 8),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                OutlinedButton.icon(
+                                  onPressed: activePage > 1
+                                      ? () => setState(() => currentPage = activePage - 1)
+                                      : null,
+                                  icon: const Icon(Icons.chevron_left, size: 16),
+                                  label: const Text('Anterior'),
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                    textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
                                   ),
-                                );
-                              }
-                            },
-                            onIncoming: () async {
-                              final err = await widget.store.moveStock(
-                                product: product,
-                                quantity: 1,
-                                type: MovementType.incoming,
-                                note: 'Entrada rápida desde catálogo',
-                              );
-                              if (!context.mounted) return;
-                              if (err != null) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(err),
-                                    backgroundColor: _Colors.red,
+                                ),
+                                const SizedBox(width: 12),
+                                Text(
+                                  'Página $activePage de $totalPages  ($totalCount productos)',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: _Colors.textSecondary,
                                   ),
-                                );
-                              } else {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      '¡Entrada registrada! 1x "${product.name}" agregada a inventario.',
-                                    ),
-                                    backgroundColor: _Colors.green,
-                                    duration: const Duration(seconds: 2),
+                                ),
+                                const SizedBox(width: 12),
+                                OutlinedButton.icon(
+                                  onPressed: activePage < totalPages
+                                      ? () => setState(() => currentPage = activePage + 1)
+                                      : null,
+                                  icon: const Icon(Icons.chevron_right, size: 16),
+                                  label: const Text('Siguiente'),
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                    textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
                                   ),
-                                );
-                              }
-                            },
-                            onStockDialog: () =>
-                                showStockDialog(context, widget.store, product),
-                            onEdit: () => _openProductForm(context, product),
-                            onDelete: () => _confirmDelete(context, product),
-                            onViewMedia: () => _showMediaViewer(context, product),
-                          );
-                        },
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
                       ),
               ),
             ],
@@ -1381,6 +1460,63 @@ class _SectionDivider extends StatelessWidget {
   }
 }
 
+// ── Category Select Dropdown ───────────────────────────────────────────────────
+class _CategorySelect extends StatelessWidget {
+  const _CategorySelect({
+    required this.selectedCategory,
+    required this.categories,
+    required this.onChanged,
+  });
+
+  final String selectedCategory;
+  final List<String> categories;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final allCategories = <String>[
+      'Todas las categorías',
+      ...categories.where((c) => c.trim().isNotEmpty),
+    ];
+
+    final effectiveValue = allCategories.contains(selectedCategory)
+        ? selectedCategory
+        : 'Todas las categorías';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+      decoration: BoxDecoration(
+        color: _Colors.bgDeep,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: _Colors.stroke, width: 1),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: effectiveValue,
+          icon: const Icon(Icons.keyboard_arrow_down_rounded,
+              size: 16, color: _Colors.textSecondary),
+          isDense: true,
+          style: const TextStyle(
+            color: _Colors.textPrimary,
+            fontSize: 10.5,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.5,
+          ),
+          items: allCategories.map((cat) {
+            return DropdownMenuItem<String>(
+              value: cat,
+              child: Text(cat.toUpperCase()),
+            );
+          }).toList(),
+          onChanged: (val) {
+            if (val != null) onChanged(val);
+          },
+        ),
+      ),
+    );
+  }
+}
+
 // ── Dashboard ──────────────────────────────────────────────────────────────────
 class _Dashboard extends StatelessWidget {
   const _Dashboard({required this.store, required this.onShowProducts});
@@ -1397,43 +1533,16 @@ class _Dashboard extends StatelessWidget {
         final isMobile = screenWidth < 680;
 
         final cards = [
-          // 1. Ganancias Hoy
-          _MetricCard(
-            icon: Icons.point_of_sale_rounded,
-            label: 'GANANCIAS HOY',
-            value: '\$${store.todayEarnings.toStringAsFixed(2)}',
-            subtitle: '${store.todaySalesUnits} ventas hoy',
-            accent: const Color(0xff059669),
-            badgeColor: const Color(0xffecfdf5),
-          ),
-          // 2. Ganancias Mes
-          _MetricCard(
-            icon: Icons.savings_rounded,
-            label: 'GANANCIAS DEL MES',
-            value: '\$${store.monthEarnings.toStringAsFixed(2)}',
-            subtitle: '${store.monthSalesUnits} ventas este mes',
-            accent: const Color(0xff7c3aed),
-            badgeColor: const Color(0xfff5f3ff),
-          ),
-          // 3. Productos en Catálogo
-          _MetricCard(
-            icon: Icons.inventory_2_rounded,
-            label: 'PRODUCTOS',
-            value: '${store.products.length}',
-            subtitle: 'En catálogo activo',
-            accent: _Colors.magenta,
-            badgeColor: const Color(0xfffff1f2),
-          ),
-          // 4. Unidades en Stock
+          // 1. Unidades en Stock
           _MetricCard(
             icon: Icons.layers_rounded,
-            label: 'UNIDADES',
+            label: 'UNIDADES (STOCK)',
             value: '${store.totalUnits}',
             subtitle: 'Total en existencia',
             accent: const Color(0xff2563eb),
             badgeColor: const Color(0xffeff6ff),
           ),
-          // 5. Valor Estimado
+          // 2. Valor Almacén
           _MetricCard(
             icon: Icons.attach_money_rounded,
             label: 'VALOR ALMACÉN',
@@ -1442,16 +1551,23 @@ class _Dashboard extends StatelessWidget {
             accent: const Color(0xff0d9488),
             badgeColor: const Color(0xfff0fdfa),
           ),
-          // 6. Stock Bajo
+          // 3. Ganancias Hoy
           _MetricCard(
-            icon: Icons.warning_amber_rounded,
-            label: 'STOCK BAJO',
-            value: '${store.lowStockCount}',
-            subtitle: store.lowStockCount > 0 ? 'Requieren resurtido' : 'Inventario óptimo',
-            accent: store.lowStockCount > 0 ? _Colors.amber : _Colors.green,
-            badgeColor: store.lowStockCount > 0 ? const Color(0xfffffbeb) : const Color(0xfff0fdf4),
-            warning: store.lowStockCount > 0,
-            onTap: onShowProducts,
+            icon: Icons.point_of_sale_rounded,
+            label: 'GANANCIAS HOY',
+            value: '\$${store.todayEarnings.toStringAsFixed(2)}',
+            subtitle: '${store.todaySalesUnits} salidas hoy',
+            accent: const Color(0xff059669),
+            badgeColor: const Color(0xffecfdf5),
+          ),
+          // 4. Ganancias Mes
+          _MetricCard(
+            icon: Icons.savings_rounded,
+            label: 'GANANCIAS MES',
+            value: '\$${store.monthEarnings.toStringAsFixed(2)}',
+            subtitle: '${store.monthSalesUnits} salidas este mes',
+            accent: const Color(0xff7c3aed),
+            badgeColor: const Color(0xfff5f3ff),
           ),
         ];
 
@@ -1467,16 +1583,16 @@ class _Dashboard extends StatelessWidget {
                 subtitle:
                     'Estado en tiempo real  ·  ${now.day}/${now.month}/${now.year}',
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 16),
 
-              // ── Metric Grid (2 cols en móvil, 3-6 en escritorio) ──────────
+              // ── Subtler Compact Metric Grid (Sutil y elegante) ─────────────
               GridView.count(
-                crossAxisCount: isMobile ? 2 : (screenWidth < 1100 ? 3 : 6),
+                crossAxisCount: isMobile ? 2 : 4,
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 crossAxisSpacing: isMobile ? 10 : 14,
                 mainAxisSpacing: isMobile ? 10 : 14,
-                childAspectRatio: isMobile ? 1.05 : 1.35,
+                childAspectRatio: isMobile ? 2.3 : 2.8,
                 children: cards,
               ),
 
@@ -1592,7 +1708,7 @@ class _LowStockTile extends StatelessWidget {
   }
 }
 
-// ── Metric card ────────────────────────────────────────────────────────────────
+// ── Metric card (Subtle & Compact) ─────────────────────────────────────────────
 class _MetricCard extends StatelessWidget {
   const _MetricCard({
     required this.icon,
@@ -1601,8 +1717,6 @@ class _MetricCard extends StatelessWidget {
     required this.accent,
     this.subtitle,
     this.badgeColor,
-    this.warning = false,
-    this.onTap,
   });
 
   final IconData icon;
@@ -1611,100 +1725,86 @@ class _MetricCard extends StatelessWidget {
   final Color accent;
   final String? subtitle;
   final Color? badgeColor;
-  final bool warning;
-  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(14),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
           color: _Colors.bgCard,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: warning ? accent.withValues(alpha: 0.45) : const Color(0xffede0e7),
-            width: warning ? 1.5 : 1,
+            color: const Color(0xffede0e7),
+            width: 1,
           ),
           boxShadow: [
             BoxShadow(
-              color: accent.withValues(alpha: 0.05),
-              blurRadius: 8,
-              offset: const Offset(0, 3),
+              color: accent.withValues(alpha: 0.04),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
             ),
           ],
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        child: Row(
           children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(7),
-                  decoration: BoxDecoration(
-                    color: badgeColor ?? accent.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(icon, color: accent, size: 18),
-                ),
-                if (onTap != null) ...[
-                  const Spacer(),
-                  Icon(Icons.arrow_forward_ios,
-                      color: _Colors.textSecondary.withValues(alpha: 0.7), size: 11),
-                ],
-              ],
+            Container(
+              padding: const EdgeInsets.all(7),
+              decoration: BoxDecoration(
+                color: badgeColor ?? accent.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, color: accent, size: 18),
             ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    value,
-                    style: TextStyle(
-                      color: accent,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: -0.5,
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      value,
+                      style: TextStyle(
+                        color: accent,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.3,
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: _Colors.textSecondary,
-                    fontSize: 9.5,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1.0,
-                  ),
-                ),
-                if (subtitle != null) ...[
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 1),
                   Text(
-                    subtitle!,
+                    label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: _Colors.textSecondary.withValues(alpha: 0.75),
-                      fontSize: 9,
-                      fontWeight: FontWeight.w500,
+                    style: const TextStyle(
+                      color: _Colors.textSecondary,
+                      fontSize: 8.5,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.8,
                     ),
                   ),
+                  if (subtitle != null) ...[
+                    Text(
+                      subtitle!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: _Colors.textSecondary.withValues(alpha: 0.75),
+                        fontSize: 8,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ],
         ),
-      ),
-    );
-  }
+      );
+    }
 }
 
 // ── Movements page ─────────────────────────────────────────────────────────────

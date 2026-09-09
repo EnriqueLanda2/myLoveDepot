@@ -203,23 +203,80 @@ const productSchema = z.object({
   imageUrls: z.array(z.string().url()).max(5).optional().default([]),
 });
 
-app.get('/api/products', async (_request, response) => {
+app.get('/api/products', async (request, response) => {
+  const page = Math.max(1, Number(request.query.page ?? 1));
+  const limit = Math.max(1, Math.min(100, Number(request.query.limit ?? 30)));
+  const offset = (page - 1) * limit;
+
+  const category = (request.query.category as string | undefined)?.trim();
+  const search = (request.query.search as string | undefined)?.trim();
+  const lowStock = request.query.lowStock === 'true' || request.query.lowStock === '1';
+
+  const whereConditions: string[] = [];
+  const params: unknown[] = [];
+
+  if (category && category.toLowerCase() !== 'todas' && category.toLowerCase() !== 'todas las categorías') {
+    whereConditions.push('category = ?');
+    params.push(category);
+  }
+
+  if (search) {
+    whereConditions.push('(name LIKE ? OR sku LIKE ? OR barcode LIKE ?)');
+    const q = `%${search}%`;
+    params.push(q, q, q);
+  }
+
+  if (lowStock) {
+    whereConditions.push('stock <= minimum_stock');
+  }
+
+  const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
+
+  const [countRows] = await pool.query<mysql.RowDataPacket[]>(
+    `SELECT COUNT(*) total FROM products ${whereClause}`,
+    params,
+  );
+  const total = Number(countRows[0]?.total ?? 0);
+
+  const isPaginatedRequest = request.query.page !== undefined || request.query.paginated === 'true';
+  const queryLimit = request.query.limit === undefined && !isPaginatedRequest ? 5000 : limit;
+  const queryOffset = !isPaginatedRequest && request.query.page === undefined ? 0 : offset;
+
   const [rows] = await pool.query<mysql.RowDataPacket[]>(`
     SELECT id, name, sku, COALESCE(barcode, '') barcode, category,
       CAST(price AS DOUBLE) price, stock, minimum_stock minimumStock,
       COALESCE(image_url, '') imageUrl, COALESCE(model_url, '') modelUrl
-    FROM products ORDER BY name
-  `);
-  const [images] = await pool.query<mysql.RowDataPacket[]>(
-    'SELECT product_id productId, image_url imageUrl FROM product_images ORDER BY product_id, view_index',
-  );
+    FROM products ${whereClause} ORDER BY name LIMIT ? OFFSET ?
+  `, [...params, queryLimit, queryOffset]);
+
+  const productIds = rows.map((r) => r.id);
   const byProduct = new Map<string, string[]>();
-  for (const image of images) {
-    const list = byProduct.get(String(image.productId)) ?? [];
-    list.push(String(image.imageUrl));
-    byProduct.set(String(image.productId), list);
+  if (productIds.length > 0) {
+    const [images] = await pool.query<mysql.RowDataPacket[]>(
+      `SELECT product_id productId, image_url imageUrl FROM product_images
+       WHERE product_id IN (?) ORDER BY product_id, view_index`,
+      [productIds],
+    );
+    for (const image of images) {
+      const list = byProduct.get(String(image.productId)) ?? [];
+      list.push(String(image.imageUrl));
+      byProduct.set(String(image.productId), list);
+    }
   }
-  response.json(rows.map((row) => ({ ...row, imageUrls: byProduct.get(String(row.id)) ?? [] })));
+
+  const products = rows.map((row) => ({ ...row, imageUrls: byProduct.get(String(row.id)) ?? [] }));
+
+  if (isPaginatedRequest) {
+    response.json({
+      products,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    });
+  } else {
+    response.json(products);
+  }
 });
 
 app.post('/api/products', async (request, response) => {
