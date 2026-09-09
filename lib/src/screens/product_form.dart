@@ -29,8 +29,6 @@ class _ProductFormState extends State<ProductForm> {
   late final TextEditingController sku;
   late final TextEditingController barcode;
   late final TextEditingController price;
-  late final TextEditingController originalPrice;
-  late final TextEditingController wholesalePrice;
   late final TextEditingController stock;
   late final TextEditingController minimum;
 
@@ -57,14 +55,6 @@ class _ProductFormState extends State<ProductForm> {
         : null;
     price = TextEditingController(
         text: product != null ? product.price.toStringAsFixed(2) : '');
-    originalPrice = TextEditingController(
-        text: product?.originalPrice != null
-            ? product!.originalPrice!.toStringAsFixed(2)
-            : '');
-    wholesalePrice = TextEditingController(
-        text: product?.wholesalePrice != null
-            ? product!.wholesalePrice!.toStringAsFixed(2)
-            : '');
     stock = TextEditingController(text: product?.stock.toString() ?? '1');
     minimum = TextEditingController(
       text: product?.minimumStock.toString() ?? '2',
@@ -90,8 +80,6 @@ class _ProductFormState extends State<ProductForm> {
       sku,
       barcode,
       price,
-      originalPrice,
-      wholesalePrice,
       stock,
       minimum
     ]) {
@@ -584,10 +572,6 @@ class _ProductFormState extends State<ProductForm> {
                 _field(barcode, 'Código de barras o QR'),
                 _categoryField(),
                 _field(price, 'Precio (\$)', numeric: true),
-                _field(originalPrice, 'Precio Original / Anterior (\$) (Opcional)',
-                    numeric: true, required: false),
-                _field(wholesalePrice, 'Precio Mayoreo (\$) (Opcional)',
-                    numeric: true, required: false),
                 _field(stock, 'Existencia (Stock)', integer: true),
                 _field(minimum, 'Stock mínimo de alerta', integer: true),
               ],
@@ -771,9 +755,6 @@ class _ProductFormState extends State<ProductForm> {
       mediaError = null;
     });
 
-    final orig = double.tryParse(originalPrice.text);
-    final whol = double.tryParse(wholesalePrice.text);
-
     final failure = await widget.store.saveProduct(
       Product(
         id: current?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
@@ -781,8 +762,6 @@ class _ProductFormState extends State<ProductForm> {
         sku: sku.text.trim(),
         category: category!.trim(),
         price: double.parse(price.text),
-        originalPrice: orig,
-        wholesalePrice: whol,
         stock: int.parse(stock.text),
         minimumStock: int.parse(minimum.text),
         barcode: barcode.text.trim(),

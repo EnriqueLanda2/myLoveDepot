@@ -374,7 +374,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           final product = filtered[index];
                           return _CatalogProductCard(
                             product: product,
-                            onAdd: () async {
+                            onOutgoing: () async {
                               final err = await widget.store.quickSale(product);
                               if (!context.mounted) return;
                               if (err != null) {
@@ -388,7 +388,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
                                     content: Text(
-                                      '¡Venta registrada! 1x "${product.name}" agregada a ganancias.',
+                                      '¡Salida registrada! 1x "${product.name}" agregada a ganancias.',
                                     ),
                                     backgroundColor: _Colors.green,
                                     duration: const Duration(seconds: 2),
@@ -396,9 +396,38 @@ class _HomeScreenState extends State<HomeScreen> {
                                 );
                               }
                             },
-                            onDetails: () => _showDetails(context, product),
+                            onIncoming: () async {
+                              final err = await widget.store.moveStock(
+                                product: product,
+                                quantity: 1,
+                                type: MovementType.incoming,
+                                note: 'Entrada rápida desde catálogo',
+                              );
+                              if (!context.mounted) return;
+                              if (err != null) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(err),
+                                    backgroundColor: _Colors.red,
+                                  ),
+                                );
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      '¡Entrada registrada! 1x "${product.name}" agregada a inventario.',
+                                    ),
+                                    backgroundColor: _Colors.green,
+                                    duration: const Duration(seconds: 2),
+                                  ),
+                                );
+                              }
+                            },
+                            onStockDialog: () =>
+                                showStockDialog(context, widget.store, product),
                             onEdit: () => _openProductForm(context, product),
                             onDelete: () => _confirmDelete(context, product),
+                            onViewMedia: () => _showMediaViewer(context, product),
                           );
                         },
                       ),
@@ -436,53 +465,86 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _showDetails(BuildContext context, Product product) async {
+  Future<void> _showMediaViewer(BuildContext context, Product product) async {
+    Uint8List? memoryBytes;
+    if (product.photoBase64.isNotEmpty) {
+      try {
+        memoryBytes = base64Decode(product.photoBase64);
+      } on FormatException {
+        memoryBytes = null;
+      }
+    }
     await showDialog<void>(
       context: context,
-      builder: (context) => Dialog.fullscreen(
-        child: Scaffold(
-          backgroundColor: _Colors.bgBase,
-          appBar: AppBar(
-            backgroundColor: _Colors.bgDeep,
-            title: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  product.name.toUpperCase(),
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1.5,
-                  ),
+      builder: (dialogContext) => Dialog(
+        backgroundColor: const Color(0xff18181b),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        clipBehavior: Clip.antiAlias,
+        child: SizedBox(
+          width: 550,
+          height: 480,
+          child: Column(
+            children: [
+              AppBar(
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                title: Text(
+                  product.name,
+                  style: const TextStyle(color: Colors.white, fontSize: 14),
                 ),
-                Text(
-                  'DETALLE DEL PRODUCTO',
-                  style: TextStyle(
-                    color: _Colors.textSecondary,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 2,
-                  ),
+                leading: IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  onPressed: () => Navigator.pop(dialogContext),
                 ),
-              ],
-            ),
-            leading: IconButton(
-              onPressed: () => Navigator.pop(context),
-              icon: const Icon(Icons.close),
-            ),
-            bottom: PreferredSize(
-              preferredSize: const Size.fromHeight(1),
-              child: Container(height: 1, color: _Colors.strokeMagenta),
-            ),
-          ),
-          body: _ProductDetails(
-            product: product,
-            store: widget.store,
-            onStock: () => showStockDialog(context, widget.store, product),
-            onEdit: () {
-              Navigator.pop(context);
-              _openProductForm(context, product);
-            },
+              ),
+              Expanded(
+                child: product.isVideo
+                    ? Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(20),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.15),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.play_arrow_rounded,
+                                  size: 64, color: Colors.white),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Video de ${product.name}',
+                              style: const TextStyle(color: Colors.white, fontSize: 16),
+                            ),
+                          ],
+                        ),
+                      )
+                    : memoryBytes != null
+                        ? InteractiveViewer(
+                            minScale: 0.8,
+                            maxScale: 4.0,
+                            child: Image.memory(memoryBytes, fit: BoxFit.contain),
+                          )
+                        : product.imageUrl.isNotEmpty
+                            ? InteractiveViewer(
+                                minScale: 0.8,
+                                maxScale: 4.0,
+                                child: Image.network(
+                                  product.imageUrl,
+                                  fit: BoxFit.contain,
+                                  errorBuilder: (_, __, ___) => const Center(
+                                    child: Icon(Icons.broken_image_rounded,
+                                        size: 64, color: Colors.white38),
+                                  ),
+                                ),
+                              )
+                            : const Center(
+                                child: Icon(Icons.inventory_2_outlined,
+                                    size: 64, color: Colors.white38),
+                              ),
+              ),
+            ],
           ),
         ),
       ),
@@ -865,22 +927,25 @@ class _FilterChip extends StatelessWidget {
   }
 }
 
-// ── Product tile ──────────────────────────────────────────────────────────────
-// ── Card de Producto Tipo Catálogo (Referencia compartida) ────────────────────
+// ── Card de Producto Tipo Catálogo (Sin Mayoreo / Interacción Directa) ─────────
 class _CatalogProductCard extends StatelessWidget {
   const _CatalogProductCard({
     required this.product,
-    required this.onAdd,
-    required this.onDetails,
+    required this.onIncoming,
+    required this.onOutgoing,
+    required this.onStockDialog,
     required this.onEdit,
     required this.onDelete,
+    required this.onViewMedia,
   });
 
   final Product product;
-  final VoidCallback onAdd;
-  final VoidCallback onDetails;
+  final VoidCallback onIncoming;
+  final VoidCallback onOutgoing;
+  final VoidCallback onStockDialog;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final VoidCallback onViewMedia;
 
   @override
   Widget build(BuildContext context) {
@@ -930,141 +995,156 @@ class _CatalogProductCard extends StatelessWidget {
         children: [
           // ── Contenedor Superior de Imagen / Video ──────────────────────────
           Expanded(
-            flex: 11,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                // Fondo oscuro estético (estilo estudio/desierto de la foto)
-                Container(
-                  color: const Color(0xff1f1d1e),
-                  child: memoryBytes != null
-                      ? Image.memory(
-                          memoryBytes,
-                          fit: BoxFit.cover,
-                        )
-                      : product.imageUrl.isNotEmpty
-                          ? Image.network(
-                              product.imageUrl,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => const Center(
-                                child: Icon(Icons.broken_image_rounded,
-                                    color: Colors.white38, size: 36),
-                              ),
-                            )
-                          : Center(
-                              child: Icon(
-                                product.isVideo
-                                    ? Icons.videocam_rounded
-                                    : Icons.inventory_2_outlined,
-                                color: Colors.white38,
-                                size: 44,
-                              ),
-                            ),
-                ),
-
-                // Scrim oscurecido si está agotado
-                if (isAgotado)
+            flex: 12,
+            child: GestureDetector(
+              onTap: onViewMedia,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  // Fondo oscuro estético
                   Container(
-                    color: Colors.black.withValues(alpha: 0.42),
+                    color: const Color(0xff1f1d1e),
+                    child: memoryBytes != null
+                        ? Image.memory(
+                            memoryBytes,
+                            fit: BoxFit.cover,
+                          )
+                        : product.imageUrl.isNotEmpty
+                            ? Image.network(
+                                product.imageUrl,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => const Center(
+                                  child: Icon(Icons.broken_image_rounded,
+                                      color: Colors.white38, size: 36),
+                                ),
+                              )
+                            : Center(
+                                child: Icon(
+                                  product.isVideo
+                                      ? Icons.videocam_rounded
+                                      : Icons.inventory_2_outlined,
+                                  color: Colors.white38,
+                                  size: 44,
+                                ),
+                              ),
                   ),
 
-                // Badge superior izquierdo: Descuento "-22%"
-                Positioned(
-                  top: 8,
-                  left: 8,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.85),
-                      borderRadius: BorderRadius.circular(4),
+                  // Scrim oscurecido si está agotado
+                  if (isAgotado)
+                    Container(
+                      color: Colors.black.withValues(alpha: 0.42),
                     ),
-                    child: Text(
-                      '-${product.discountPercent}%',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 9.5,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.2,
-                      ),
-                    ),
-                  ),
-                ),
 
-                // Badge superior derecho: "DISPONIBLES: X" o indicador de video
-                Positioned(
-                  top: 8,
-                  right: 8,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (product.isVideo) ...[
-                        Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.7),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(Icons.play_arrow_rounded,
-                              color: Colors.white, size: 12),
-                        ),
-                        const SizedBox(width: 4),
-                      ],
-                      if (!isAgotado)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: const Color(0xff007a4d),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            'DISPONIBLES: ${product.stock}',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 9,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 0.3,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-
-                // Insignia central blanca "AGOTADO"
-                if (isAgotado)
-                  Center(
+                  // Chip de Categoría (Superior Izquierda)
+                  Positioned(
+                    top: 8,
+                    left: 8,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 6),
+                          horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(2),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.25),
-                            blurRadius: 6,
-                          ),
-                        ],
+                        color: categoryBg.withValues(alpha: 0.95),
+                        borderRadius: BorderRadius.circular(6),
                       ),
-                      child: const Text(
-                        'AGOTADO',
+                      child: Text(
+                        product.category.toUpperCase(),
                         style: TextStyle(
-                          color: Colors.black,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 1.8,
+                          color: categoryText,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.5,
                         ),
                       ),
                     ),
                   ),
-              ],
+
+                  // Botones de acción rápida sobre la imagen (Superior Derecha)
+                  Positioned(
+                    top: 6,
+                    right: 6,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (product.isVideo) ...[
+                          Container(
+                            padding: const EdgeInsets.all(5),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.65),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.play_arrow_rounded,
+                                color: Colors.white, size: 14),
+                          ),
+                          const SizedBox(width: 4),
+                        ],
+                        // Botón Editar (Lápiz)
+                        Material(
+                          color: Colors.black.withValues(alpha: 0.55),
+                          shape: const CircleBorder(),
+                          clipBehavior: Clip.antiAlias,
+                          child: InkWell(
+                            onTap: onEdit,
+                            child: const Padding(
+                              padding: EdgeInsets.all(6),
+                              child: Icon(Icons.edit_rounded,
+                                  color: Colors.white, size: 14),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        // Botón Eliminar (Basura)
+                        Material(
+                          color: Colors.black.withValues(alpha: 0.55),
+                          shape: const CircleBorder(),
+                          clipBehavior: Clip.antiAlias,
+                          child: InkWell(
+                            onTap: onDelete,
+                            child: const Padding(
+                              padding: EdgeInsets.all(6),
+                              child: Icon(Icons.delete_outline_rounded,
+                                  color: Colors.white, size: 14),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // Insignia central blanca "AGOTADO"
+                  if (isAgotado)
+                    Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(2),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.25),
+                              blurRadius: 6,
+                            ),
+                          ],
+                        ),
+                        child: const Text(
+                          'AGOTADO',
+                          style: TextStyle(
+                            color: Colors.black,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 1.8,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
 
-          // ── Cuerpo de Información ──────────────────────────────────────────
+          // ── Cuerpo de Información e Interacción Directa ─────────────────────
           Expanded(
-            flex: 11,
+            flex: 12,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
               child: Column(
@@ -1082,7 +1162,7 @@ class _CatalogProductCard extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           fontFamily: 'serif',
-                          fontSize: 12.5,
+                          fontSize: 13,
                           fontWeight: FontWeight.w800,
                           color: Color(0xff18181b),
                           height: 1.2,
@@ -1090,98 +1170,134 @@ class _CatalogProductCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
 
-                      // Chip de Género / Categoría
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: categoryBg,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          product.category.toUpperCase(),
-                          style: TextStyle(
-                            color: categoryText,
-                            fontSize: 8.5,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-
-                      // "Sin reseñas"
-                      const Text(
-                        'Sin reseñas',
-                        style: TextStyle(
-                          color: Color(0xff94a3b8),
-                          fontSize: 10,
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  // Precios
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
+                      // Stock e Indicador
                       Row(
-                        crossAxisAlignment: CrossAxisAlignment.baseline,
-                        textBaseline: TextBaseline.alphabetic,
                         children: [
-                          Text(
-                            '\$${product.price.toStringAsFixed(0)}',
-                            style: const TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w900,
-                              color: Color(0xff18181b),
-                              letterSpacing: -0.5,
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: isAgotado
+                                  ? const Color(0xfffee2e2)
+                                  : product.hasLowStock
+                                      ? const Color(0xfffef3c7)
+                                      : const Color(0xffdcfce7),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              isAgotado
+                                  ? 'SIN STOCK'
+                                  : 'STOCK: ${product.stock}',
+                              style: TextStyle(
+                                color: isAgotado
+                                    ? const Color(0xff991b1b)
+                                    : product.hasLowStock
+                                        ? const Color(0xff92400e)
+                                        : const Color(0xff166534),
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.3,
+                              ),
                             ),
                           ),
-                          const SizedBox(width: 5),
-                          Text(
-                            '\$${product.effectiveOriginalPrice.toStringAsFixed(0)}',
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: Color(0xff94a3b8),
-                              decoration: TextDecoration.lineThrough,
+                          if (product.sku.isNotEmpty) ...[
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                'SKU: ${product.sku}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Color(0xff94a3b8),
+                                  fontSize: 9.5,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                             ),
-                          ),
+                          ],
                         ],
                       ),
-                      const Text(
-                        'PRECIO FINAL',
-                        style: TextStyle(
-                          color: Color(0xff64748b),
-                          fontSize: 8,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.6,
+                    ],
+                  ),
+
+                  // Precio Limpio (Sin mayoreo ni precios tachados irrelevantes)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        '\$${product.price.toStringAsFixed(product.price.truncateToDouble() == product.price ? 0 : 2)}',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xff18181b),
+                          letterSpacing: -0.5,
                         ),
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '🏷️ Mayoreo \$${product.effectiveWholesalePrice.toStringAsFixed(2)}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Color(0xff059669),
-                          fontSize: 9.5,
-                          fontWeight: FontWeight.w700,
+
+                      // Botón para ajustar existencias arbitrarias
+                      InkWell(
+                        onTap: onStockDialog,
+                        borderRadius: BorderRadius.circular(6),
+                        child: Padding(
+                          padding: const EdgeInsets.all(4),
+                          child: Row(
+                            children: [
+                              Icon(Icons.swap_vert_rounded,
+                                  size: 15, color: Colors.grey.shade600),
+                              const SizedBox(width: 2),
+                              Text(
+                                'Ajustar',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.grey.shade700,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ],
                   ),
 
-                  // ── Botones "AGREGAR" y "DETALLES" ─────────────────────────
+                  // ── Botones Directos de ENTRADA (+1) y SALIDA/VENTA (-1) ───
                   Row(
                     children: [
-                      // Botón AGREGAR (verde si hay stock, gris si agotado)
+                      // Botón ENTRADA (+1)
                       Expanded(
                         child: SizedBox(
-                          height: 30,
-                          child: ElevatedButton(
-                            onPressed: isAgotado ? null : onAdd,
+                          height: 32,
+                          child: OutlinedButton.icon(
+                            onPressed: onIncoming,
+                            icon: const Icon(Icons.add_rounded, size: 14),
+                            label: const Text('ENTRADA'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xff0284c7),
+                              side: const BorderSide(
+                                  color: Color(0xff0284c7), width: 1.2),
+                              padding: EdgeInsets.zero,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              textStyle: const TextStyle(
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+
+                      // Botón SALIDA / VENTA (-1)
+                      Expanded(
+                        child: SizedBox(
+                          height: 32,
+                          child: ElevatedButton.icon(
+                            onPressed: isAgotado ? null : onOutgoing,
+                            icon: const Icon(Icons.remove_rounded, size: 14),
+                            label: const Text('SALIDA'),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color(0xff006847),
                               foregroundColor: Colors.white,
@@ -1192,41 +1308,10 @@ class _CatalogProductCard extends StatelessWidget {
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(20),
                               ),
-                            ),
-                            child: const Text(
-                              'AGREGAR',
-                              style: TextStyle(
+                              textStyle: const TextStyle(
                                 fontSize: 9.5,
                                 fontWeight: FontWeight.w800,
-                                letterSpacing: 0.6,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 5),
-
-                      // Botón DETALLES (negro)
-                      Expanded(
-                        child: SizedBox(
-                          height: 30,
-                          child: ElevatedButton(
-                            onPressed: onDetails,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.black,
-                              foregroundColor: Colors.white,
-                              padding: EdgeInsets.zero,
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                            ),
-                            child: const Text(
-                              'DETALLES',
-                              style: TextStyle(
-                                fontSize: 9.5,
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: 0.6,
+                                letterSpacing: 0.5,
                               ),
                             ),
                           ),
@@ -1268,358 +1353,7 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-// ── Product details ────────────────────────────────────────────────────────────
-class _ProductDetails extends StatefulWidget {
-  const _ProductDetails({
-    required this.product,
-    required this.store,
-    required this.onStock,
-    required this.onEdit,
-  });
-  final Product product;
-  final InventoryStore store;
-  final VoidCallback onStock;
-  final VoidCallback onEdit;
-
-  @override
-  State<_ProductDetails> createState() => _ProductDetailsState();
-}
-
-class _ProductDetailsState extends State<_ProductDetails> {
-  int imageIndex = 0;
-
-  @override
-  Widget build(BuildContext context) {
-    final product = widget.product;
-    final images = product.imageUrls.isNotEmpty
-        ? product.imageUrls
-        : product.imageUrl.isNotEmpty
-            ? [product.imageUrl]
-            : <String>[];
-    Uint8List? memoryBytes;
-    if (product.photoBase64.isNotEmpty) {
-      try {
-        memoryBytes = base64Decode(product.photoBase64);
-      } on FormatException {
-        memoryBytes = null;
-      }
-    }
-
-    return LayoutBuilder(builder: (context, constraints) {
-      final wide = constraints.maxWidth > 760;
-      final gallery = Container(
-        color: const Color(0xff18181b),
-        child: product.isVideo
-            ? Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.15),
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white24, width: 2),
-                      ),
-                      child: const Icon(Icons.play_arrow_rounded,
-                          size: 64, color: Colors.white),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Video de ${product.name}',
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      'Video MP4 / WebM verificado e íntegro',
-                      style: TextStyle(color: Colors.white60, fontSize: 12),
-                    ),
-                  ],
-                ),
-              )
-            : memoryBytes != null
-                ? InteractiveViewer(
-                    minScale: 0.8,
-                    maxScale: 4.0,
-                    child: Center(
-                      child: Image.memory(
-                        memoryBytes,
-                        fit: BoxFit.contain,
-                      ),
-                    ),
-                  )
-                : images.isNotEmpty
-                    ? Column(
-                        children: [
-                          Expanded(
-                            child: PageView.builder(
-                              itemCount: images.length,
-                              onPageChanged: (value) =>
-                                  setState(() => imageIndex = value),
-                              itemBuilder: (_, index) => InteractiveViewer(
-                                minScale: 0.8,
-                                maxScale: 4.0,
-                                child: Center(
-                                  child: Image.network(
-                                    images[index],
-                                    fit: BoxFit.contain,
-                                    errorBuilder: (_, __, ___) => const Center(
-                                      child: Icon(Icons.broken_image_outlined,
-                                          size: 70, color: Colors.white38),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                          if (images.length > 1)
-                            Padding(
-                              padding: const EdgeInsets.all(12),
-                              child: Text(
-                                'Vista ${imageIndex + 1} de ${images.length}  ·  Desliza para explorar',
-                                style: const TextStyle(
-                                    color: Colors.white60, fontSize: 12),
-                              ),
-                            ),
-                        ],
-                      )
-                    : const Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.inventory_2_outlined,
-                                size: 80, color: Colors.white38),
-                            SizedBox(height: 12),
-                            Text('Sin imágenes registradas',
-                                style: TextStyle(color: Colors.white60)),
-                          ],
-                        ),
-                      ),
-      );
-
-      final isAgotado = product.stock <= 0;
-
-      final info = SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              product.name,
-              style: const TextStyle(
-                color: _Colors.textPrimary,
-                fontSize: 22,
-                fontFamily: 'serif',
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0.3,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _DetailChip(label: product.category, icon: Icons.label_outline),
-                _DetailChip(
-                  label: isAgotado
-                      ? 'AGOTADO'
-                      : (product.hasLowStock ? 'STOCK BAJO' : 'DISPONIBLE'),
-                  icon: isAgotado
-                      ? Icons.cancel_outlined
-                      : (product.hasLowStock
-                          ? Icons.warning_amber_rounded
-                          : Icons.check_circle_outline),
-                  color: isAgotado
-                      ? _Colors.red
-                      : (product.hasLowStock ? _Colors.amber : _Colors.green),
-                ),
-                if (product.isVideo)
-                  const _DetailChip(
-                    label: 'VIDEO ADJUNTO',
-                    icon: Icons.videocam_rounded,
-                    color: Color(0xff0284c7),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 24),
-
-            _detailRow(Icons.qr_code, 'CÓDIGO',
-                product.barcode.isEmpty ? 'Sin código' : product.barcode),
-            _detailRow(Icons.sell_outlined, 'SKU', product.sku),
-            _detailRow(Icons.inventory_2_outlined, 'EXISTENCIAS',
-                '${product.stock} unidades'),
-            _detailRow(Icons.low_priority, 'STOCK MÍNIMO',
-                '${product.minimumStock} unidades'),
-            _detailRow(Icons.payments_outlined, 'PRECIO FINAL',
-                '\$${product.price.toStringAsFixed(2)}'),
-            _detailRow(Icons.price_change_outlined, 'PRECIO REGULAR',
-                '\$${product.effectiveOriginalPrice.toStringAsFixed(2)}'),
-            _detailRow(Icons.local_offer_outlined, 'PRECIO MAYOREO',
-                '\$${product.effectiveWholesalePrice.toStringAsFixed(2)}'),
-            _detailRow(
-                Icons.account_balance_wallet_outlined,
-                'VALOR EN INVENTARIO',
-                '\$${product.inventoryValue.toStringAsFixed(2)}'),
-
-            const SizedBox(height: 24),
-            const _SectionDivider(label: 'ACCIONES'),
-            const SizedBox(height: 16),
-
-            // Botón Venta Rápida (1 unidad)
-            FilledButton.icon(
-              onPressed: isAgotado
-                  ? null
-                  : () async {
-                      final err = await widget.store.quickSale(product);
-                      if (!context.mounted) return;
-                      if (err != null) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(err), backgroundColor: _Colors.red),
-                        );
-                      } else {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Venta registrada: \$${product.price.toStringAsFixed(2)} sumados a ganancias.'),
-                            backgroundColor: _Colors.green,
-                          ),
-                        );
-                      }
-                    },
-              icon: const Icon(Icons.point_of_sale_rounded, size: 18),
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xff006847),
-                foregroundColor: Colors.white,
-              ),
-              label: const Text(
-                'REGISTRAR VENTA (1 UNIDAD)',
-                style: TextStyle(
-                    fontWeight: FontWeight.w800, letterSpacing: 1.1, fontSize: 12),
-              ),
-            ),
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: widget.onStock,
-              icon: const Icon(Icons.swap_horiz, size: 18),
-              label: const Text(
-                'ENTRADA / SALIDA MANUAL',
-                style: TextStyle(
-                    fontWeight: FontWeight.w800, letterSpacing: 1.1, fontSize: 12),
-              ),
-            ),
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: widget.onEdit,
-              icon: const Icon(Icons.edit_outlined, size: 18),
-              label: const Text('EDITAR PRODUCTO',
-                  style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1.1,
-                      fontSize: 12)),
-            ),
-          ],
-        ),
-      );
-
-      return wide
-          ? Row(children: [
-              Expanded(flex: 3, child: gallery),
-              Container(width: 1, color: _Colors.stroke),
-              Expanded(flex: 2, child: info),
-            ])
-          : Column(children: [
-              Expanded(flex: 3, child: gallery),
-              Expanded(flex: 4, child: info),
-            ]);
-    });
-  }
-
-  Widget _detailRow(IconData icon, String label, String value) => Padding(
-        padding: const EdgeInsets.only(bottom: 12),
-        child: Row(children: [
-          Container(
-            padding: const EdgeInsets.all(7),
-            decoration: BoxDecoration(
-              color: _Colors.bgSurface,
-              borderRadius: BorderRadius.circular(4),
-              border: Border.all(color: _Colors.stroke, width: 1),
-            ),
-            child: Icon(icon, color: _Colors.magenta, size: 16),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                Text(
-                  label,
-                  style: const TextStyle(
-                    color: _Colors.textSecondary,
-                    fontSize: 9,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 1.8,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    color: _Colors.textPrimary,
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ])),
-        ]),
-      );
-}
-
-// ── Detail chip & Section divider ──────────────────────────────────────────────
-class _DetailChip extends StatelessWidget {
-  const _DetailChip({
-    required this.label,
-    required this.icon,
-    this.color,
-  });
-
-  final String label;
-  final IconData icon;
-  final Color? color;
-
-  @override
-  Widget build(BuildContext context) {
-    final effectiveColor = color ?? _Colors.textSecondary;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: effectiveColor.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: effectiveColor.withValues(alpha: 0.25),
-          width: 1,
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: effectiveColor),
-          const SizedBox(width: 5),
-          Text(
-            label,
-            style: TextStyle(
-              color: effectiveColor,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.4,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
+// ── Section divider ─────────────────────────────────────────────────────────────
 
 class _SectionDivider extends StatelessWidget {
   const _SectionDivider({required this.label});
