@@ -1,16 +1,3 @@
-"""Construye el modelo 3D de un producto a partir de sus fotografías.
-
-Uso:
-    python build_model.py --input <carpeta> --output <archivo.glb>
-
-La carpeta debe contener las vistas nombradas `view-0.*` … `view-4.*`, en el
-mismo orden que el formulario de la app: Frente, Atrás, Izquierda, Derecha y
-Arriba. Basta con una; cuantas más haya, más ajustado sale el contorno.
-
-Al terminar imprime un resumen JSON en la salida estándar para que la API pueda
-registrar qué vistas se aprovecharon.
-"""
-
 from __future__ import annotations
 
 import argparse

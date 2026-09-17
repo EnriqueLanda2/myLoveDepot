@@ -1351,9 +1351,9 @@ class _CatalogProductCard extends StatelessWidget {
                             icon: const Icon(Icons.add_rounded, size: 14),
                             label: const Text('ENTRADA'),
                             style: OutlinedButton.styleFrom(
-                              foregroundColor: const Color(0xff0284c7),
+                              foregroundColor: _Colors.green,
                               side: const BorderSide(
-                                  color: Color(0xff0284c7), width: 1.2),
+                                  color: _Colors.green, width: 1.2),
                               padding: EdgeInsets.zero,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(20),
@@ -1378,7 +1378,7 @@ class _CatalogProductCard extends StatelessWidget {
                             icon: const Icon(Icons.remove_rounded, size: 14),
                             label: const Text('SALIDA'),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xff006847),
+                              backgroundColor: _Colors.magenta,
                               foregroundColor: Colors.white,
                               disabledBackgroundColor: const Color(0xffe2e8f0),
                               disabledForegroundColor: const Color(0xff94a3b8),
