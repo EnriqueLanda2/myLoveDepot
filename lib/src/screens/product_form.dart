@@ -327,6 +327,7 @@ class _ProductFormState extends State<ProductForm> {
     final hasMedia = mediaBytes != null || existingUrl.isNotEmpty;
 
     return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       title: Row(
         children: [
           Container(
@@ -584,17 +585,37 @@ class _ProductFormState extends State<ProductForm> {
           onPressed: () => Navigator.pop(context),
           child: const Text('CANCELAR'),
         ),
-        FilledButton.icon(
-          onPressed: saving ? null : _save,
-          icon: saving
-              ? const SizedBox.square(
-                  dimension: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                )
-              : const Icon(Icons.check_circle_rounded, size: 18),
-          label: Text(
-            saving ? 'GUARDANDO…' : 'GUARDAR PRODUCTO',
-            style: const TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1.1),
+        Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            gradient: const LinearGradient(
+              colors: [magenta, Color(0xffb5296b)],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: magenta.withValues(alpha: 0.3),
+                blurRadius: 8,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: FilledButton.icon(
+            onPressed: saving ? null : _save,
+            icon: saving
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
+                : const Icon(Icons.check_circle_rounded, size: 18),
+            label: Text(
+              saving ? 'GUARDANDO…' : 'GUARDAR PRODUCTO',
+              style: const TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1.1),
+            ),
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.transparent,
+              foregroundColor: Colors.white,
+              shadowColor: Colors.transparent,
+            ),
           ),
         ),
       ],

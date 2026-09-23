@@ -28,17 +28,17 @@ class _DepotAppState extends State<DepotApp> {
 
   @override
   Widget build(BuildContext context) {
-    // ── Paleta principal (LIGHT) ──────────────────────────────────────────────
+    // ── Paleta principal (LIGHT — refinada) ───────────────────────────────────
     const magenta = Color(0xffd94f87);          // acento principal
 
-    // Colores del tema CLARO (los originales de la app)
+    // Colores del tema CLARO
     const bgBase = Color(0xfffff6fa);           // fondo scaffold (crema rosado)
     const bgCard = Color(0xffffffff);           // tarjetas blancas
     const bgSurface = Color(0xfffffbfd);        // superficies
     const bgNav = Color(0xfffffafd);            // nav bar/rail
     const indicatorColor = Color(0xffffd7e6);   // indicador nav
     const stroke = Color(0xffe8d0da);           // líneas sutiles rosadas
-    const textPrimary = Color(0xff49343f);      // texto principal (rosa oscuro)
+    const textPrimary = Color(0xff3a2633);      // texto principal (rosa oscuro más profundo)
     const textSecondary = Color(0xff7a5c6b);    // texto secundario
 
     return MaterialApp(
@@ -132,12 +132,12 @@ class _DepotAppState extends State<DepotApp> {
 
         // ── Cards ─────────────────────────────────────────────────────────────
         cardTheme: const CardThemeData(
-          elevation: 1,
+          elevation: 0,
           color: bgCard,
-          shadowColor: Color(0x1ad94f87),
+          shadowColor: Color(0x0dd94f87),
           margin: EdgeInsets.zero,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(16)),
+            borderRadius: BorderRadius.all(Radius.circular(20)),
             side: BorderSide(color: stroke, width: 1),
           ),
         ),
@@ -188,7 +188,7 @@ class _DepotAppState extends State<DepotApp> {
             ),
             shape: WidgetStateProperty.all(
               const RoundedRectangleBorder(
-                borderRadius: BorderRadius.all(Radius.circular(12)),
+                borderRadius: BorderRadius.all(Radius.circular(14)),
               ),
             ),
             textStyle: WidgetStateProperty.all(
@@ -256,22 +256,23 @@ class _DepotAppState extends State<DepotApp> {
         dialogTheme: const DialogThemeData(
           backgroundColor: bgCard,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(20)),
+            borderRadius: BorderRadius.all(Radius.circular(24)),
             side: BorderSide(color: stroke, width: 1),
           ),
           titleTextStyle: TextStyle(
             color: textPrimary,
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.3,
           ),
         ),
 
         // ── SnackBar ──────────────────────────────────────────────────────────
         snackBarTheme: const SnackBarThemeData(
-          backgroundColor: Color(0xff49343f),
-          contentTextStyle: TextStyle(color: Colors.white),
+          backgroundColor: Color(0xff3a2633),
+          contentTextStyle: TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(10)),
+            borderRadius: BorderRadius.all(Radius.circular(14)),
           ),
           behavior: SnackBarBehavior.floating,
         ),
@@ -352,8 +353,9 @@ class _DepotAppState extends State<DepotApp> {
         floatingActionButtonTheme: const FloatingActionButtonThemeData(
           backgroundColor: magenta,
           foregroundColor: Colors.white,
+          elevation: 0,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(16)),
+            borderRadius: BorderRadius.all(Radius.circular(18)),
           ),
         ),
       ),
