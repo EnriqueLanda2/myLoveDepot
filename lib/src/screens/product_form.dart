@@ -631,7 +631,7 @@ class _ProductFormState extends State<ProductForm> {
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: magenta, width: 2),
+            borderSide: const BorderSide(color: Color(0xffd94f87), width: 2),
           ),
           errorBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
@@ -753,7 +753,7 @@ class _ProductFormState extends State<ProductForm> {
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: magenta, width: 2),
+            borderSide: const BorderSide(color: Color(0xffd94f87), width: 2),
           ),
           errorBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),

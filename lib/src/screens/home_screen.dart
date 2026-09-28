@@ -2402,7 +2402,7 @@ class _MovementsPageState extends State<_MovementsPage> {
                         children: [
                           Expanded(
                             child: DropdownButtonFormField<int?>(
-                              value: _monthFilter,
+                              initialValue: _monthFilter,
                               decoration: const InputDecoration(
                                 labelText: 'Mes',
                                 border: OutlineInputBorder(),
@@ -2429,7 +2429,7 @@ class _MovementsPageState extends State<_MovementsPage> {
                           const SizedBox(width: 12),
                           Expanded(
                             child: DropdownButtonFormField<int?>(
-                              value: _yearFilter,
+                              initialValue: _yearFilter,
                               decoration: const InputDecoration(
                                 labelText: 'Año',
                                 border: OutlineInputBorder(),
