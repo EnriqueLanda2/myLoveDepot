@@ -2307,13 +2307,40 @@ class _MovementsPageState extends State<_MovementsPage> {
   MovementType? _typeFilter;
   int? _monthFilter;
   int? _yearFilter;
+  String? _categoryFilter;
   bool _showFilters = false;
+
+  InputDecoration _dropdownDecoration(String label) {
+    return InputDecoration(
+      labelText: label,
+      labelStyle: const TextStyle(color: Color(0xff7a5c6b), fontSize: 13),
+      filled: true,
+      fillColor: const Color(0xfffffbfd),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Color(0xfff3e4ed), width: 1.5),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Color(0xfff3e4ed), width: 1.5),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: _C.magenta, width: 2),
+      ),
+    );
+  }
 
   List<StockMovement> get _filtered {
     return widget.store.movements.where((m) {
       if (_typeFilter != null && m.type != _typeFilter) return false;
       if (_monthFilter != null && m.createdAt.month != _monthFilter) return false;
       if (_yearFilter != null && m.createdAt.year != _yearFilter) return false;
+      if (_categoryFilter != null) {
+        final p = widget.store.products.where((prod) => prod.id == m.productId).firstOrNull;
+        if (p?.category != _categoryFilter) return false;
+      }
       return true;
     }).toList();
   }
@@ -2401,13 +2428,26 @@ class _MovementsPageState extends State<_MovementsPage> {
                       Row(
                         children: [
                           Expanded(
+                            child: DropdownButtonFormField<String?>(
+                              initialValue: _categoryFilter,
+                              decoration: _dropdownDecoration('Categoría'),
+                              isExpanded: true,
+                              items: [
+                                const DropdownMenuItem(value: null, child: Text('Todas las categorías')),
+                                ...widget.store.categoryNames.map((c) => DropdownMenuItem(value: c, child: Text(c, overflow: TextOverflow.ellipsis))),
+                              ],
+                              onChanged: (val) => setState(() => _categoryFilter = val),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
                             child: DropdownButtonFormField<int?>(
                               initialValue: _monthFilter,
-                              decoration: const InputDecoration(
-                                labelText: 'Mes',
-                                border: OutlineInputBorder(),
-                                isDense: true,
-                              ),
+                              decoration: _dropdownDecoration('Mes'),
                               items: const [
                                 DropdownMenuItem(value: null, child: Text('Todos los meses')),
                                 DropdownMenuItem(value: 1, child: Text('Enero')),
@@ -2430,11 +2470,7 @@ class _MovementsPageState extends State<_MovementsPage> {
                           Expanded(
                             child: DropdownButtonFormField<int?>(
                               initialValue: _yearFilter,
-                              decoration: const InputDecoration(
-                                labelText: 'Año',
-                                border: OutlineInputBorder(),
-                                isDense: true,
-                              ),
+                              decoration: _dropdownDecoration('Año'),
                               items: [
                                 const DropdownMenuItem(value: null, child: Text('Todos los años')),
                                 ...availableYears.map((y) => DropdownMenuItem(value: y, child: Text('$y'))),

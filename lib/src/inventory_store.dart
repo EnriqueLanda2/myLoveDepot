@@ -16,7 +16,11 @@ class InventoryStore extends ChangeNotifier {
   final List<Product> _products = [];
   final List<StockMovement> _movements = [];
   final List<ProductCategory> _categories = [];
-  final DepotApiClient api = DepotApiClient();
+  late final DepotApiClient api = DepotApiClient(
+    onUnauthorized: () {
+      logout();
+    },
+  );
   bool isLoading = true;
   String role = '';
   String username = '';

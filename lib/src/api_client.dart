@@ -8,9 +8,11 @@ import 'models.dart';
 class DepotApiClient {
   DepotApiClient({
     this.baseUrl = const String.fromEnvironment('API_BASE_URL'),
+    this.onUnauthorized,
   });
 
   final String baseUrl;
+  final void Function()? onUnauthorized;
   String token = '';
 
   bool get enabled => baseUrl.trim().isNotEmpty && token.isNotEmpty;
@@ -157,6 +159,9 @@ class DepotApiClient {
   }
 
   void _ensureSuccess(http.Response response) {
+    if (response.statusCode == 401) {
+      onUnauthorized?.call();
+    }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw DepotApiException(response.statusCode, response.body);
     }
