@@ -75,6 +75,19 @@ class DepotApiClient {
     _ensureSuccess(response);
   }
 
+  Future<List<StockMovement>> getMovements({int limit = 200}) async {
+    final response = await http.get(
+      _uri('/api/movements?limit=$limit'),
+      headers: _headers,
+    );
+    _ensureSuccess(response);
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final list = data['movements'] as List;
+    return list
+        .map((item) => StockMovement.fromJson(item as Map<String, dynamic>))
+        .toList();
+  }
+
   /// Pide al servidor que reconstruya el modelo 3D con las fotos ya subidas.
   Future<String> buildProductModel(String productId) async {
     final response = await http.post(
@@ -123,7 +136,7 @@ class DepotApiClient {
     _ensureSuccess(response);
   }
 
-  Future<void> moveStock({
+  Future<int> moveStock({
     required Product product,
     required MovementType type,
     required int quantity,
@@ -139,6 +152,8 @@ class DepotApiClient {
       }),
     );
     _ensureSuccess(response);
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    return (data['stock'] as num).toInt();
   }
 
   void _ensureSuccess(http.Response response) {

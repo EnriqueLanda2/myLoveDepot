@@ -194,7 +194,6 @@ const productSchema = z.object({
   id: z.string().min(1).max(64),
   name: z.string().min(1).max(160),
   sku: z.string().min(1).max(80),
-  barcode: z.string().max(120).optional().default(''),
   category: z.string().trim().min(1).max(100),
   price: z.number().nonnegative(),
   stock: z.number().int().nonnegative(),
@@ -221,9 +220,9 @@ app.get('/api/products', async (request, response) => {
   }
 
   if (search) {
-    whereConditions.push('(name LIKE ? OR sku LIKE ? OR barcode LIKE ?)');
+    whereConditions.push('(name LIKE ? OR sku LIKE ?)');
     const q = `%${search}%`;
-    params.push(q, q, q);
+    params.push(q, q);
   }
 
   if (lowStock) {
@@ -243,7 +242,7 @@ app.get('/api/products', async (request, response) => {
   const queryOffset = !isPaginatedRequest && request.query.page === undefined ? 0 : offset;
 
   const [rows] = await pool.query<mysql.RowDataPacket[]>(`
-    SELECT id, name, sku, COALESCE(barcode, '') barcode, category,
+    SELECT id, name, sku, category,
       CAST(price AS DOUBLE) price, stock, minimum_stock minimumStock,
       COALESCE(image_url, '') imageUrl, COALESCE(model_url, '') modelUrl
     FROM products ${whereClause} ORDER BY name LIMIT ? OFFSET ?
@@ -287,12 +286,12 @@ app.post('/api/products', async (request, response) => {
     [randomUUID(), parsed.category]);
   await pool.execute(
     `INSERT INTO products
-      (id, name, sku, barcode, category, price, stock, minimum_stock, image_url)
-     VALUES (?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, NULLIF(?, ''))
+      (id, name, sku, category, price, stock, minimum_stock, image_url)
+     VALUES (?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''))
      ON DUPLICATE KEY UPDATE name=VALUES(name), sku=VALUES(sku),
-       barcode=VALUES(barcode), category=VALUES(category), price=VALUES(price),
+       category=VALUES(category), price=VALUES(price),
        stock=VALUES(stock), minimum_stock=VALUES(minimum_stock), image_url=VALUES(image_url)`,
-    [parsed.id, parsed.name, parsed.sku, parsed.barcode, parsed.category, parsed.price,
+    [parsed.id, parsed.name, parsed.sku, parsed.category, parsed.price,
       parsed.stock, parsed.minimumStock, parsed.imageUrl],
   );
   response.status(200).json({ ok: true });
@@ -393,6 +392,40 @@ app.post('/api/products/:id/model', async (request, response) => {
   });
 });
 
+app.get('/api/movements', async (request, response) => {
+  const limit = Math.max(1, Math.min(500, Number(request.query.limit ?? 200)));
+  const offset = Math.max(0, Number(request.query.offset ?? 0));
+
+  const [rows] = await pool.query<mysql.RowDataPacket[]>(`
+    SELECT m.id, m.product_id productId, p.name productName,
+      m.type, m.quantity, CAST(p.price AS DOUBLE) unitPrice,
+      m.note, m.created_at createdAt
+    FROM stock_movements m
+    LEFT JOIN products p ON p.id = m.product_id
+    ORDER BY m.created_at DESC
+    LIMIT ? OFFSET ?
+  `, [limit, offset]);
+
+  const [countRows] = await pool.query<mysql.RowDataPacket[]>(
+    'SELECT COUNT(*) total FROM stock_movements',
+  );
+  const total = Number(countRows[0]?.total ?? 0);
+
+  response.json({
+    movements: rows.map((row) => ({
+      id: String(row.id),
+      productId: row.productId,
+      productName: row.productName ?? 'Producto eliminado',
+      type: row.type,
+      quantity: Number(row.quantity),
+      unitPrice: Number(row.unitPrice ?? 0),
+      note: row.note ?? '',
+      createdAt: row.createdAt,
+    })),
+    total,
+  });
+});
+
 const movementSchema = z.object({
   type: z.enum(['incoming', 'outgoing']),
   quantity: z.number().int().positive(),
@@ -426,6 +459,9 @@ app.post('/api/products/:id/movements', async (request, response) => {
     );
     await connection.commit();
     response.json({ stock: Number(rows[0].stock) + delta });
+  } catch (error) {
+    await connection.rollback();
+    throw error;
   } finally {
     connection.release();
   }

@@ -124,43 +124,7 @@ class InventoryStore extends ChangeNotifier {
     );
   }
 
-  Product? findByBarcode(String barcode) {
-    final normalized = barcode.trim();
-    if (normalized.isEmpty) return null;
-    for (final product in _products) {
-      if (product.barcode == normalized) return product;
-    }
-    return null;
-  }
 
-  bool barcodeBelongsToAnotherProduct(String barcode, String? productId) {
-    final match = findByBarcode(barcode);
-    return match != null && match.id != productId;
-  }
-
-  Future<void> addOne(Product product) async {
-    product.stock += 1;
-    _movements.insert(
-      0,
-      StockMovement(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
-        productId: product.id,
-        productName: product.name,
-        type: MovementType.incoming,
-        quantity: 1,
-        createdAt: DateTime.now(),
-        note: 'Escaneo de código',
-      ),
-    );
-    await _save();
-    notifyListeners();
-    await _syncMovement(
-      product: product,
-      type: MovementType.incoming,
-      quantity: 1,
-      note: 'Escaneo de código',
-    );
-  }
 
   Future<void> load() async {
     final preferences = await SharedPreferences.getInstance();
@@ -251,6 +215,15 @@ class InventoryStore extends ChangeNotifier {
     _categories
       ..clear()
       ..addAll(remoteCategories);
+    try {
+      final remoteMovements = await api.getMovements();
+      _movements
+        ..clear()
+        ..addAll(remoteMovements);
+    } on Object catch (error) {
+      // Los movimientos remotos son un extra; si falla, se mantienen los locales.
+      debugPrint('No se pudieron cargar los movimientos remotos: $error');
+    }
     await _save();
   }
 
@@ -443,12 +416,18 @@ class InventoryStore extends ChangeNotifier {
   }) async {
     if (!api.enabled) return;
     try {
-      await api.moveStock(
+      final serverStock = await api.moveStock(
         product: product,
         type: type,
         quantity: quantity,
         note: note,
       );
+      // Corregir el stock local con el valor autoritativo del servidor
+      if (product.stock != serverStock) {
+        product.stock = serverStock;
+        await _save();
+        notifyListeners();
+      }
     } on Object catch (error) {
       debugPrint(
           'Movimiento guardado localmente, pendiente de sincronizar: $error');

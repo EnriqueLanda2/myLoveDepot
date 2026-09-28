@@ -28,7 +28,6 @@ class _LoginScreenState extends State<LoginScreen>
   static const _bgGrad1 = Color(0xffffedf5);
   static const _bgGrad2 = Color(0xfffff8d9);
   static const _bgGrad3 = Color(0xfffffbfd);
-  static const _textPrimary = Color(0xff3a2633);
   static const _textSecondary = Color(0xff7a5c6b);
   static const _stroke = Color(0xffe8d0da);
 
@@ -91,12 +90,14 @@ class _LoginScreenState extends State<LoginScreen>
 
             // Main content
             Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 440),
-                  child: Column(
-                    children: [
+              child: ScrollConfiguration(
+                behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(24),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 440),
+                    child: Column(
+                      children: [
                       // ── Mascot (floating) ────────────────────────────────
                       AnimatedBuilder(
                         animation: _floatAnim,
@@ -382,6 +383,7 @@ class _LoginScreenState extends State<LoginScreen>
                   ),
                 ),
               ),
+            ),
             ),
           ],
         ),

@@ -10,14 +10,12 @@ import '../widgets/pwa_helpers.dart';
 import '../widgets/pwa_install_banner.dart';
 import 'categories_screen.dart';
 import 'product_form.dart';
-import 'scanner_screen.dart';
 import 'stock_dialog.dart';
 
 // ── Paleta de colores centralizada (LIGHT — refinada) ─────────────────────────
 class _C {
   static const magenta = Color(0xffd94f87);
   static const magentaDeep = Color(0xffb5296b);
-  static const magentaGlow = Color(0x1ad94f87);
   static const bgDeep = Color(0xfffff6fa);
   static const bgBase = Color(0xfffff6fa);
   static const bgCard = Color(0xffffffff);
@@ -28,7 +26,6 @@ class _C {
   static const textPrimary = Color(0xff3a2633);
   static const textSecondary = Color(0xff7a5c6b);
   static const green = Color(0xff16a34a);
-  static const greenLight = Color(0xffecfdf5);
   static const amber = Color(0xffb45309);
   static const red = Color(0xffb00020);
 }
@@ -94,7 +91,7 @@ class _HomeScreenState extends State<HomeScreen> {
               appBar: _buildAppBar(context, wide),
               body: Row(
                 children: [
-                  if (wide) _buildNavRail(),
+                  if (wide) _buildNavRail(constraints.maxWidth),
                   Expanded(
                     child: Column(
                       children: [
@@ -217,14 +214,6 @@ class _HomeScreenState extends State<HomeScreen> {
             label: widget.store.role,
           ),
         if (wide) const SizedBox(width: 8),
-        // Scanner button (wide)
-        if (wide)
-          _AppBarAction(
-            icon: Icons.qr_code_scanner_rounded,
-            label: 'ESCANEAR',
-            onPressed: () => _scanProduct(context),
-          ),
-        if (wide) const SizedBox(width: 8),
         // New product button (wide)
         if (wide)
           Padding(
@@ -313,7 +302,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildNavRail() {
+  Widget _buildNavRail(double width) {
+    final isExtended = width >= 1000;
     const destinations = [
       NavigationRailDestination(
         icon: Icon(Icons.dashboard_outlined),
@@ -349,6 +339,35 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       child: NavigationRail(
+        extended: isExtended,
+        leading: isExtended
+            ? Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: Column(
+                  children: [
+                    const LoveMascot(size: 40),
+                    const SizedBox(height: 8),
+                    ShaderMask(
+                      shaderCallback: (bounds) => const LinearGradient(
+                        colors: [_C.magenta, _C.magentaDeep],
+                      ).createShader(bounds),
+                      child: const Text(
+                        'DEPOT',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 2,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            : const Padding(
+                padding: EdgeInsets.only(bottom: 16),
+                child: LoveMascot(size: 32),
+              ),
         selectedIndex: selectedIndex,
         onDestinationSelected: (value) =>
             setState(() => selectedIndex = value),
@@ -456,9 +475,12 @@ class _HomeScreenState extends State<HomeScreen> {
           crossAxisCount = 5;
         }
 
-        return Padding(
-          padding: EdgeInsets.all(isMobile ? 12 : 24),
-          child: Column(
+        return Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1400),
+            child: Padding(
+              padding: EdgeInsets.all(isMobile ? 12 : 24),
+              child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               // ── Page header ──────────────────────────────────────────────
@@ -678,6 +700,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
               ),
             ],
+              ),
+            ),
           ),
         );
       },
@@ -690,26 +714,6 @@ class _HomeScreenState extends State<HomeScreen> {
       context: context,
       builder: (_) => ProductForm(store: widget.store, product: product),
     );
-  }
-
-  Future<void> _scanProduct(BuildContext context) async {
-    final code = await Navigator.push<String>(
-      context,
-      MaterialPageRoute(builder: (_) => const ScannerScreen()),
-    );
-    if (!context.mounted || code == null || code.isEmpty) return;
-
-    final existing = widget.store.findByBarcode(code);
-    if (existing != null) {
-      await showStockDialog(context, widget.store, existing,
-          incomingOnly: true, initialQuantity: 1);
-    } else {
-      await showDialog<void>(
-        context: context,
-        builder: (_) =>
-            ProductForm(store: widget.store, initialBarcode: code),
-      );
-    }
   }
 
   Future<void> _showMediaViewer(
@@ -1282,8 +1286,8 @@ class _FilterChip extends StatelessWidget {
           children: [
             Icon(
               selected
-                  ? Icons.warning_amber_rounded
-                  : Icons.warning_amber_outlined,
+                  ? Icons.check_circle_rounded
+                  : Icons.circle_outlined,
               size: 14,
               color: selected ? _C.magenta : _C.textSecondary,
             ),
@@ -1415,7 +1419,7 @@ class _CatalogProductCardState extends State<_CatalogProductCard> {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 250),
         curve: Curves.easeOut,
-        transform: Matrix4.identity()..scale(_hovering ? 1.02 : 1.0),
+        transform: _hovering ? (Matrix4.identity()..setEntry(0, 0, 1.02)..setEntry(1, 1, 1.02)) : Matrix4.identity(),
         transformAlignment: Alignment.center,
         decoration: BoxDecoration(
           color: Colors.white,
@@ -1999,104 +2003,109 @@ class _Dashboard extends StatelessWidget {
           ),
         ];
 
-        return SingleChildScrollView(
-          padding: EdgeInsets.all(isMobile ? 14 : 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // ── Header ──────────────────────────────────────────────────
-              _PageHeader(
-                icon: Icons.dashboard_rounded,
-                title: 'RESUMEN DEL ALMACÉN',
-                subtitle:
-                    'Estado en tiempo real  ·  ${now.day}/${now.month}/${now.year}',
-              ),
-              const SizedBox(height: 20),
-
-              // ── Metric Grid ─────────────────────────────────────────────
-              GridView.count(
-                crossAxisCount: isMobile ? 2 : 4,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                crossAxisSpacing: isMobile ? 10 : 14,
-                mainAxisSpacing: isMobile ? 10 : 14,
-                childAspectRatio: isMobile ? 2.2 : 2.6,
-                children: cards,
-              ),
-
-              const SizedBox(height: 28),
-
-              const _SectionDivider(label: 'ATENCIÓN REQUERIDA'),
-              const SizedBox(height: 16),
-
-              // ── Low stock list ──────────────────────────────────────────
-              if (store.lowStockCount == 0)
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: _C.bgCard,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                        color: _C.green.withValues(alpha: 0.2),
-                        width: 1),
-                    boxShadow: [
-                      BoxShadow(
-                        color: _C.green.withValues(alpha: 0.05),
-                        blurRadius: 8,
-                      ),
-                    ],
+        return Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1200),
+            child: SingleChildScrollView(
+              padding: EdgeInsets.all(isMobile ? 14 : 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // ── Header ──────────────────────────────────────────────────
+                  _PageHeader(
+                    icon: Icons.dashboard_rounded,
+                    title: 'RESUMEN DEL ALMACÉN',
+                    subtitle:
+                        'Estado en tiempo real  ·  ${now.day}/${now.month}/${now.year}',
                   ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: _C.green.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(
-                            Icons.check_circle_rounded,
-                            color: _C.green,
-                            size: 24),
-                      ),
-                      const SizedBox(width: 14),
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '¡Todo en orden!',
-                              style: TextStyle(
-                                color: _C.textPrimary,
-                                fontWeight: FontWeight.w800,
-                                fontSize: 14,
-                              ),
-                            ),
-                            SizedBox(height: 2),
-                            Text(
-                              'Todos los productos cuentan con existencias suficientes.',
-                              style: TextStyle(
-                                  color: _C.textSecondary,
-                                  fontSize: 12),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+                  const SizedBox(height: 20),
+
+                  // ── Metric Grid ─────────────────────────────────────────────
+                  GridView.count(
+                    crossAxisCount: isMobile ? 2 : 4,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    crossAxisSpacing: isMobile ? 10 : 14,
+                    mainAxisSpacing: isMobile ? 10 : 14,
+                    childAspectRatio: isMobile ? 2.2 : 2.6,
+                    children: cards,
                   ),
-                )
-              else
-                ...store.products
-                    .where((item) => item.hasLowStock)
-                    .map(
-                      (product) => Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: _LowStockTile(
-                            product: product,
-                            onTap: onShowProducts),
+
+                  const SizedBox(height: 28),
+
+                  const _SectionDivider(label: 'ATENCIÓN REQUERIDA'),
+                  const SizedBox(height: 16),
+
+                  // ── Low stock list ──────────────────────────────────────────
+                  if (store.lowStockCount == 0)
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: _C.bgCard,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                            color: _C.green.withValues(alpha: 0.2),
+                            width: 1),
+                        boxShadow: [
+                          BoxShadow(
+                            color: _C.green.withValues(alpha: 0.05),
+                            blurRadius: 8,
+                          ),
+                        ],
                       ),
-                    ),
-            ],
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: _C.green.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Icon(
+                                Icons.check_circle_rounded,
+                                color: _C.green,
+                                size: 24),
+                          ),
+                          const SizedBox(width: 14),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '¡Todo en orden!',
+                                  style: TextStyle(
+                                    color: _C.textPrimary,
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                SizedBox(height: 2),
+                                Text(
+                                  'Todos los productos cuentan con existencias suficientes.',
+                                  style: TextStyle(
+                                      color: _C.textSecondary,
+                                      fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    ...store.products
+                        .where((item) => item.hasLowStock)
+                        .map(
+                          (product) => Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: _LowStockTile(
+                                product: product,
+                                onTap: onShowProducts),
+                          ),
+                        ),
+                ],
+              ),
+            ),
           ),
         );
       },
@@ -2286,155 +2295,325 @@ class _MetricCard extends StatelessWidget {
 }
 
 // ── Movements page ─────────────────────────────────────────────────────────────
-class _MovementsPage extends StatelessWidget {
+class _MovementsPage extends StatefulWidget {
   const _MovementsPage({required this.store});
   final InventoryStore store;
 
   @override
+  State<_MovementsPage> createState() => _MovementsPageState();
+}
+
+class _MovementsPageState extends State<_MovementsPage> {
+  MovementType? _typeFilter;
+  int? _monthFilter;
+  int? _yearFilter;
+  bool _showFilters = false;
+
+  List<StockMovement> get _filtered {
+    return widget.store.movements.where((m) {
+      if (_typeFilter != null && m.type != _typeFilter) return false;
+      if (_monthFilter != null && m.createdAt.month != _monthFilter) return false;
+      if (_yearFilter != null && m.createdAt.year != _yearFilter) return false;
+      return true;
+    }).toList();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const _PageHeader(
-            icon: Icons.swap_horiz_rounded,
-            title: 'HISTORIAL DE MOVIMIENTOS',
-            subtitle:
-                'Registro de entradas y salidas de inventario',
-          ),
-          const SizedBox(height: 20),
-          Expanded(
-            child: store.movements.isEmpty
-                ? const _EmptyState(
-                    icon: Icons.swap_horiz_outlined,
-                    message:
-                        'Todavía no hay entradas ni salidas registradas.',
-                  )
-                : ListView.separated(
-                    itemCount: store.movements.length,
-                    separatorBuilder: (_, __) =>
-                        const SizedBox(height: 8),
-                    itemBuilder: (context, index) {
-                      final movement = store.movements[index];
-                      final incoming =
-                          movement.type == MovementType.incoming;
-                      final color =
-                          incoming ? _C.green : _C.magenta;
-                      return Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 14),
-                        decoration: BoxDecoration(
-                          color: _C.bgCard,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: color.withValues(alpha: 0.15),
-                            width: 1,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color:
-                                  color.withValues(alpha: 0.04),
-                              blurRadius: 6,
-                            ),
-                          ],
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: color
-                                    .withValues(alpha: 0.1),
-                                borderRadius:
-                                    BorderRadius.circular(12),
-                              ),
-                              child: Icon(
-                                incoming
-                                    ? Icons
-                                        .south_west_rounded
-                                    : Icons
-                                        .north_east_rounded,
-                                color: color,
-                                size: 18,
-                              ),
-                            ),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment:
-                                    CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    movement.productName,
-                                    style: const TextStyle(
-                                      color:
-                                          _C.textPrimary,
-                                      fontWeight:
-                                          FontWeight.w700,
-                                      fontSize: 13,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 3),
-                                  Text(
-                                    _date(movement
-                                            .createdAt) +
-                                        (movement
-                                                .note.isEmpty
-                                            ? ''
-                                            : '  ·  ${movement.note}'),
-                                    style: TextStyle(
-                                      color: _C
-                                          .textSecondary
-                                          .withValues(
-                                              alpha: 0.8),
-                                      fontSize: 11,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Container(
-                              padding:
-                                  const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 6),
-                              decoration: BoxDecoration(
-                                color: color
-                                    .withValues(alpha: 0.1),
-                                borderRadius:
-                                    BorderRadius.circular(10),
-                                border: Border.all(
-                                  color: color.withValues(
-                                      alpha: 0.2),
-                                  width: 1,
-                                ),
-                              ),
-                              child: Text(
-                                '${incoming ? '+' : '-'}${movement.quantity}',
-                                style: TextStyle(
-                                  color: color,
-                                  fontWeight:
-                                      FontWeight.w800,
-                                  fontSize: 16,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
+    final filtered = _filtered;
+    final incomingCount =
+        widget.store.movements.where((m) => m.type == MovementType.incoming).length;
+    final outgoingCount =
+        widget.store.movements.where((m) => m.type == MovementType.outgoing).length;
+
+    final availableYears = widget.store.movements.map((m) => m.createdAt.year).toSet().toList()..sort();
+    if (availableYears.isEmpty) availableYears.add(DateTime.now().year);
+
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 900),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: _PageHeader(
+                      icon: Icons.swap_horiz_rounded,
+                      title: 'HISTORIAL DE MOVIMIENTOS',
+                      subtitle:
+                          '${widget.store.movements.length} movs registrados  ·  $incomingCount entradas  ·  $outgoingCount salidas',
+                    ),
                   ),
+                  TextButton.icon(
+                    onPressed: () => setState(() => _showFilters = !_showFilters),
+                    icon: Icon(_showFilters ? Icons.expand_less : Icons.filter_alt_rounded, color: _C.magenta),
+                    label: Text(_showFilters ? 'OCULTAR FILTROS' : 'FILTRAR', style: const TextStyle(color: _C.magenta, fontWeight: FontWeight.bold)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              if (_showFilters)
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: _C.bgCard,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: _C.strokeLight, width: 1),
+                    boxShadow: [
+                      BoxShadow(
+                        color: _C.magenta.withValues(alpha: 0.03),
+                        blurRadius: 8,
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _FilterChip(
+                            label: 'TODAS',
+                            selected: _typeFilter == null,
+                            onSelected: (_) => setState(() => _typeFilter = null),
+                          ),
+                          _FilterChip(
+                            label: 'ENTRADAS',
+                            selected: _typeFilter == MovementType.incoming,
+                            onSelected: (_) => setState(
+                                () => _typeFilter = MovementType.incoming),
+                          ),
+                          _FilterChip(
+                            label: 'SALIDAS (VENTAS)',
+                            selected: _typeFilter == MovementType.outgoing,
+                            onSelected: (_) => setState(
+                                () => _typeFilter = MovementType.outgoing),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: DropdownButtonFormField<int?>(
+                              value: _monthFilter,
+                              decoration: const InputDecoration(
+                                labelText: 'Mes',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                              ),
+                              items: const [
+                                DropdownMenuItem(value: null, child: Text('Todos los meses')),
+                                DropdownMenuItem(value: 1, child: Text('Enero')),
+                                DropdownMenuItem(value: 2, child: Text('Febrero')),
+                                DropdownMenuItem(value: 3, child: Text('Marzo')),
+                                DropdownMenuItem(value: 4, child: Text('Abril')),
+                                DropdownMenuItem(value: 5, child: Text('Mayo')),
+                                DropdownMenuItem(value: 6, child: Text('Junio')),
+                                DropdownMenuItem(value: 7, child: Text('Julio')),
+                                DropdownMenuItem(value: 8, child: Text('Agosto')),
+                                DropdownMenuItem(value: 9, child: Text('Septiembre')),
+                                DropdownMenuItem(value: 10, child: Text('Octubre')),
+                                DropdownMenuItem(value: 11, child: Text('Noviembre')),
+                                DropdownMenuItem(value: 12, child: Text('Diciembre')),
+                              ],
+                              onChanged: (val) => setState(() => _monthFilter = val),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: DropdownButtonFormField<int?>(
+                              value: _yearFilter,
+                              decoration: const InputDecoration(
+                                labelText: 'Año',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                              ),
+                              items: [
+                                const DropdownMenuItem(value: null, child: Text('Todos los años')),
+                                ...availableYears.map((y) => DropdownMenuItem(value: y, child: Text('$y'))),
+                              ],
+                              onChanged: (val) => setState(() => _yearFilter = val),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              if (_showFilters) const SizedBox(height: 16),
+
+              Text(
+                '${filtered.length} resultado${filtered.length == 1 ? '' : 's'}',
+                style: TextStyle(
+                  color: _C.textSecondary.withValues(alpha: 0.7),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 10),
+
+              // ── Movement list ─────────────────────────────────────────────
+              Expanded(
+                child: filtered.isEmpty
+                    ? _EmptyState(
+                        icon: Icons.swap_horiz_outlined,
+                        message: 'No hay registros que coincidan con los filtros.',
+                      )
+                    : ListView.separated(
+                        itemCount: filtered.length,
+                        separatorBuilder: (_, __) =>
+                            const SizedBox(height: 8),
+                        itemBuilder: (context, index) {
+                          final movement = filtered[index];
+                          return _MovementTile(movement: movement);
+                        },
+                      ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
+}
+
+class _MovementTile extends StatefulWidget {
+  const _MovementTile({required this.movement});
+  final StockMovement movement;
+
+  @override
+  State<_MovementTile> createState() => _MovementTileState();
+}
+
+class _MovementTileState extends State<_MovementTile> {
+  bool _hovering = false;
 
   String _date(DateTime date) {
     String two(int value) => value.toString().padLeft(2, '0');
     return '${two(date.day)}/${two(date.month)}/${date.year} '
         '${two(date.hour)}:${two(date.minute)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final movement = widget.movement;
+    final incoming = movement.type == MovementType.incoming;
+    final color = incoming ? _C.green : _C.magenta;
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovering = true),
+      onExit: (_) => setState(() => _hovering = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: _hovering ? _C.bgCard : _C.bgBase,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: _hovering ? color.withValues(alpha: 0.3) : color.withValues(alpha: 0.15),
+            width: 1,
+          ),
+          boxShadow: _hovering
+              ? [
+                  BoxShadow(
+                    color: color.withValues(alpha: 0.1),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : [
+                  BoxShadow(
+                    color: color.withValues(alpha: 0.02),
+                    blurRadius: 4,
+                  ),
+                ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                incoming ? Icons.south_west_rounded : Icons.north_east_rounded,
+                color: color,
+                size: 18,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    movement.productName,
+                    style: const TextStyle(
+                      color: _C.textPrimary,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    _date(movement.createdAt) +
+                        (movement.note.isEmpty ? '' : '  ·  ${movement.note}'),
+                    style: TextStyle(
+                      color: _C.textSecondary.withValues(alpha: 0.8),
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: color.withValues(alpha: 0.2),
+                      width: 1,
+                    ),
+                  ),
+                  child: Text(
+                    '${incoming ? '+' : '-'}${movement.quantity}',
+                    style: TextStyle(
+                      color: color,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+                if (!incoming && movement.unitPrice > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4, right: 2),
+                    child: Text(
+                      'Total: \$${(movement.quantity * movement.unitPrice).toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        color: _C.green,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

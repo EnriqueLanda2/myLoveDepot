@@ -81,13 +81,6 @@ class _LoveMascotPainter extends CustomPainter {
 
     // ── Colores ──────────────────────────────────────────────────────────────
     final body = Paint()..color = const Color(0xffffd54f);
-    final bodyDark = Paint()..color = const Color(0xfff0c030); // sombra cuerpo
-    final outline = Paint()
-      ..color = const Color(0xff3d3040)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.5
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
     final outlineThin = Paint()
       ..color = const Color(0xff3d3040)
       ..style = PaintingStyle.stroke
@@ -104,7 +97,6 @@ class _LoveMascotPainter extends CustomPainter {
     final iris = Paint()..color = const Color(0xff6d4230);
     final pupil = Paint()..color = const Color(0xff1a1018);
     final highlight = Paint()..color = const Color(0xffffffff);
-    final mouthFill = Paint()..color = const Color(0xff3d3040);
 
     // ── Cuerpo (pill / cápsula redondeada) ───────────────────────────────────
     final bodyRect = RRect.fromRectAndRadius(

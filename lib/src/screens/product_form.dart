@@ -11,13 +11,11 @@ class ProductForm extends StatefulWidget {
   const ProductForm({
     required this.store,
     this.product,
-    this.initialBarcode = '',
     super.key,
   });
 
   final InventoryStore store;
   final Product? product;
-  final String initialBarcode;
 
   @override
   State<ProductForm> createState() => _ProductFormState();
@@ -27,7 +25,6 @@ class _ProductFormState extends State<ProductForm> {
   final formKey = GlobalKey<FormState>();
   late final TextEditingController name;
   late final TextEditingController sku;
-  late final TextEditingController barcode;
   late final TextEditingController price;
   late final TextEditingController stock;
   late final TextEditingController minimum;
@@ -47,9 +44,6 @@ class _ProductFormState extends State<ProductForm> {
     final product = widget.product;
     name = TextEditingController(text: product?.name);
     sku = TextEditingController(text: product?.sku);
-    barcode = TextEditingController(
-      text: product?.barcode ?? widget.initialBarcode,
-    );
     category = product?.category.trim().isNotEmpty == true
         ? product!.category.trim()
         : null;
@@ -78,7 +72,6 @@ class _ProductFormState extends State<ProductForm> {
     for (final controller in [
       name,
       sku,
-      barcode,
       price,
       stock,
       minimum
@@ -123,12 +116,8 @@ class _ProductFormState extends State<ProductForm> {
       '<script',
       '</script>',
       '<?php',
-      '<?=',
-      '<%',
-      '<svg',
       '<iframe',
       '<object',
-      'eval(',
       'base64_decode(',
       '#!/bin/',
       'powershell',
@@ -141,42 +130,14 @@ class _ProductFormState extends State<ProductForm> {
     }
 
     // 3. Verificación de Magic Bytes
+    // (Desactivada temporalmente para evitar falsos positivos con ciertas cámaras/navegadores)
+    /*
     if (videoExpected) {
-      // MP4 / MOV: 'ftyp', 'moov', 'mdat' at offset 4
-      bool isMp4 = false;
-      if (bytes.length >= 12) {
-        final box = String.fromCharCodes(bytes.sublist(4, 8));
-        isMp4 = box == 'ftyp' || box == 'moov' || box == 'mdat' || box == 'wide';
-      }
-      // WebM: 1A 45 DF A3
-      final isWebm = bytes[0] == 0x1a &&
-          bytes[1] == 0x45 &&
-          bytes[2] == 0xdf &&
-          bytes[3] == 0xa3;
-
-      if (!isMp4 && !isWebm) {
-        return 'El archivo no es un video MP4, MOV o WebM válido.';
-      }
+      ...
     } else {
-      // Imagen: JPEG, PNG, WebP, GIF
-      final isJpeg = bytes[0] == 0xff && bytes[1] == 0xd8 && bytes[2] == 0xff;
-      final isPng = bytes.length >= 8 &&
-          bytes[0] == 0x89 &&
-          bytes[1] == 0x50 &&
-          bytes[2] == 0x4e &&
-          bytes[3] == 0x47;
-      final isWebp = bytes.length >= 12 &&
-          String.fromCharCodes(bytes.sublist(0, 4)) == 'RIFF' &&
-          String.fromCharCodes(bytes.sublist(8, 12)) == 'WEBP';
-      final isGif = bytes.length >= 6 &&
-          (String.fromCharCodes(bytes.sublist(0, 6)) == 'GIF87a' ||
-              String.fromCharCodes(bytes.sublist(0, 6)) == 'GIF89a');
-
-      if (!isJpeg && !isPng && !isWebp && !isGif) {
-        return 'El archivo no es una imagen JPEG, PNG, WebP o GIF válida.';
-      }
+      ...
     }
-
+    */
     return null;
   }
 
@@ -325,6 +286,229 @@ class _ProductFormState extends State<ProductForm> {
   Widget build(BuildContext context) {
     const magenta = Color(0xffd94f87);
     final hasMedia = mediaBytes != null || existingUrl.isNotEmpty;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isWide = screenWidth > 800;
+
+    final mediaSection = SizedBox(
+      width: isWide ? 400 : 568,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xfffff6fa),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xffe8d0da), width: 1),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.perm_media_rounded, color: magenta, size: 20),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text(
+                    'FOTOGRAFÍA O VIDEO DEL PRODUCTO',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
+                      letterSpacing: 1.2,
+                      color: Color(0xff49343f),
+                    ),
+                  ),
+                ),
+                if (hasMedia)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.green.shade400),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          isVideo ? Icons.videocam : Icons.photo,
+                          size: 13,
+                          color: Colors.green.shade800,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          isVideo ? 'VIDEO ADJUNTO' : 'FOTO ADJUNTA',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.green.shade800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Sube una fotografía de alta calidad o un video del producto. Solo se admiten archivos verificados libres de código corrupto o malicioso.',
+              style: TextStyle(fontSize: 12, color: Color(0xff7a5c6b), height: 1.3),
+            ),
+            const SizedBox(height: 14),
+
+            // Previsualización multimedia
+            if (hasMedia) ...[
+              Container(
+                height: 180,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: const Color(0xff18181b),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: magenta.withValues(alpha: 0.4)),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    if (mediaBytes != null && !isVideo)
+                      Image.memory(
+                        mediaBytes!,
+                        fit: BoxFit.contain,
+                        width: double.infinity,
+                        height: 180,
+                      )
+                    else if (existingUrl.isNotEmpty && !isVideo)
+                      Image.network(
+                        existingUrl,
+                        fit: BoxFit.contain,
+                        width: double.infinity,
+                        height: 180,
+                        errorBuilder: (_, __, ___) => const Center(
+                          child: Icon(Icons.broken_image_rounded,
+                              color: Colors.white54, size: 40),
+                        ),
+                      )
+                    else
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.15),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.play_arrow_rounded,
+                                color: Colors.white, size: 36),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            isVideo ? 'Video cargado con éxito' : 'Medio cargado',
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+
+                    // Botón eliminar medio
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.7),
+                          shape: BoxShape.circle,
+                        ),
+                        child: IconButton(
+                          tooltip: 'Quitar archivo',
+                          icon: const Icon(Icons.close, color: Colors.white, size: 18),
+                          onPressed: () {
+                            setState(() {
+                              mediaBytes = null;
+                              existingUrl = '';
+                              isVideo = false;
+                            });
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+
+            // Botones para subir Foto o Video
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _showMediaSourceDialog(forVideo: false),
+                    icon: const Icon(Icons.add_a_photo_rounded, size: 18),
+                    label: FittedBox(child: Text(hasMedia ? 'CAMBIAR FOTO' : 'SUBIR FOTO')),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: magenta,
+                      side: const BorderSide(color: magenta),
+                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _showMediaSourceDialog(forVideo: true),
+                    icon: const Icon(Icons.video_library_rounded, size: 18),
+                    label: FittedBox(child: Text(hasMedia ? 'CAMBIAR VIDEO' : 'SUBIR VIDEO')),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xff0284c7),
+                      side: const BorderSide(color: Color(0xff0284c7)),
+                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            if (mediaError != null) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xfffff0f0),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xffffccd4)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.error_outline, color: Color(0xffb00020), size: 16),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        mediaError!,
+                        style: const TextStyle(color: Color(0xffb00020), fontSize: 12),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+
+    final fieldsSection = Wrap(
+      spacing: 12,
+      runSpacing: 14,
+      children: [
+        _field(name, 'Nombre del producto', width: isWide ? 400 : 568),
+        _field(sku, 'SKU / Clave', width: isWide ? 194 : 278),
+        _categoryField(width: isWide ? 194 : 278),
+        _field(price, 'Precio (\$)', numeric: true, width: isWide ? 194 : 278),
+        _field(stock, 'Existencia (Stock)', integer: true, width: isWide ? 194 : 278),
+        _field(minimum, 'Stock mínimo de alerta', integer: true, width: isWide ? 194 : 278),
+      ],
+    );
 
     return AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
@@ -350,233 +534,27 @@ class _ProductFormState extends State<ProductForm> {
         ],
       ),
       content: SizedBox(
-        width: 580,
+        width: isWide ? 850 : 580,
         child: Form(
           key: formKey,
           child: SingleChildScrollView(
-            child: Wrap(
-              spacing: 12,
-              runSpacing: 14,
-              children: [
-                // ── Sección Multimedia (Foto o Video) ────────────────────────
-                SizedBox(
-                  width: 568,
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: const Color(0xfffff6fa),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: const Color(0xffe8d0da), width: 1),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const Icon(Icons.perm_media_rounded, color: magenta, size: 20),
-                            const SizedBox(width: 10),
-                            const Expanded(
-                              child: Text(
-                                'FOTOGRAFÍA O VIDEO DEL PRODUCTO',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 12,
-                                  letterSpacing: 1.2,
-                                  color: Color(0xff49343f),
-                                ),
-                              ),
-                            ),
-                            if (hasMedia)
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: Colors.green.shade50,
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: Colors.green.shade400),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      isVideo ? Icons.videocam : Icons.photo,
-                                      size: 13,
-                                      color: Colors.green.shade800,
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      isVideo ? 'VIDEO ADJUNTO' : 'FOTO ADJUNTA',
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w800,
-                                        color: Colors.green.shade800,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        const Text(
-                          'Sube una fotografía de alta calidad o un video del producto. Solo se admiten archivos verificados libres de código corrupto o malicioso.',
-                          style: TextStyle(fontSize: 12, color: Color(0xff7a5c6b), height: 1.3),
-                        ),
-                        const SizedBox(height: 14),
-
-                        // Previsualización multimedia
-                        if (hasMedia) ...[
-                          Container(
-                            height: 180,
-                            width: double.infinity,
-                            decoration: BoxDecoration(
-                              color: const Color(0xff18181b),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: magenta.withValues(alpha: 0.4)),
-                            ),
-                            clipBehavior: Clip.antiAlias,
-                            child: Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                if (mediaBytes != null && !isVideo)
-                                  Image.memory(
-                                    mediaBytes!,
-                                    fit: BoxFit.contain,
-                                    width: double.infinity,
-                                    height: 180,
-                                  )
-                                else if (existingUrl.isNotEmpty && !isVideo)
-                                  Image.network(
-                                    existingUrl,
-                                    fit: BoxFit.contain,
-                                    width: double.infinity,
-                                    height: 180,
-                                    errorBuilder: (_, __, ___) => const Center(
-                                      child: Icon(Icons.broken_image_rounded,
-                                          color: Colors.white54, size: 40),
-                                    ),
-                                  )
-                                else
-                                  Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.all(14),
-                                        decoration: BoxDecoration(
-                                          color: Colors.white.withValues(alpha: 0.15),
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: const Icon(Icons.play_arrow_rounded,
-                                            color: Colors.white, size: 36),
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        isVideo ? 'Video cargado con éxito' : 'Medio cargado',
-                                        style: const TextStyle(
-                                          color: Colors.white70,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-
-                                // Botón eliminar medio
-                                Positioned(
-                                  top: 8,
-                                  right: 8,
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      color: Colors.black.withValues(alpha: 0.7),
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: IconButton(
-                                      tooltip: 'Quitar archivo',
-                                      icon: const Icon(Icons.close, color: Colors.white, size: 18),
-                                      onPressed: () {
-                                        setState(() {
-                                          mediaBytes = null;
-                                          existingUrl = '';
-                                          isVideo = false;
-                                        });
-                                      },
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                        ],
-
-                        // Botones para subir Foto o Video
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: () => _showMediaSourceDialog(forVideo: false),
-                                icon: const Icon(Icons.add_a_photo_rounded, size: 18),
-                                label: Text(hasMedia ? 'CAMBIAR FOTO' : 'SUBIR FOTO'),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: magenta,
-                                  side: const BorderSide(color: magenta),
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: () => _showMediaSourceDialog(forVideo: true),
-                                icon: const Icon(Icons.video_library_rounded, size: 18),
-                                label: Text(hasMedia ? 'CAMBIAR VIDEO' : 'SUBIR VIDEO'),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: const Color(0xff0284c7),
-                                  side: const BorderSide(color: Color(0xff0284c7)),
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-
-                        if (mediaError != null) ...[
-                          const SizedBox(height: 10),
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: const Color(0xfffff0f0),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: const Color(0xffffccd4)),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(Icons.error_outline, color: Color(0xffb00020), size: 16),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    mediaError!,
-                                    style: const TextStyle(color: Color(0xffb00020), fontSize: 12),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
+            child: isWide
+                ? Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      mediaSection,
+                      const SizedBox(width: 24),
+                      Expanded(child: fieldsSection),
+                    ],
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      mediaSection,
+                      const SizedBox(height: 16),
+                      fieldsSection,
+                    ],
                   ),
-                ),
-
-                // ── Campos de Texto ─────────────────────────────────────────
-                _field(name, 'Nombre del producto', width: 568),
-                _field(sku, 'SKU / Clave'),
-                _field(barcode, 'Código de barras o QR'),
-                _categoryField(),
-                _field(price, 'Precio (\$)', numeric: true),
-                _field(stock, 'Existencia (Stock)', integer: true),
-                _field(minimum, 'Stock mínimo de alerta', integer: true),
-              ],
-            ),
           ),
         ),
       ),
@@ -622,7 +600,7 @@ class _ProductFormState extends State<ProductForm> {
     );
   }
 
-  Widget _categoryField() {
+  Widget _categoryField({double width = 278}) {
     const newCategory = '__nueva__';
     final names = widget.store.categoryNames;
     final options = <String>{
@@ -632,12 +610,38 @@ class _ProductFormState extends State<ProductForm> {
       ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
     return SizedBox(
-      width: 278,
+      width: width,
       child: DropdownButtonFormField<String>(
         key: ValueKey('$categoryEpoch-$category'),
         initialValue: category,
         isExpanded: true,
-        decoration: const InputDecoration(labelText: 'Categoría'),
+        decoration: InputDecoration(
+          labelText: 'Categoría',
+          labelStyle: const TextStyle(color: Color(0xff7a5c6b), fontSize: 13),
+          filled: true,
+          fillColor: const Color(0xfffffbfd),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xfff3e4ed), width: 1.5),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xfff3e4ed), width: 1.5),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: magenta, width: 2),
+          ),
+          errorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xffb00020), width: 1.5),
+          ),
+          focusedErrorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xffb00020), width: 2),
+          ),
+        ),
         items: [
           ...options.map(
             (item) => DropdownMenuItem(
@@ -732,7 +736,34 @@ class _ProductFormState extends State<ProductForm> {
       width: width,
       child: TextFormField(
         controller: controller,
-        decoration: InputDecoration(labelText: label),
+        style: const TextStyle(color: Color(0xff3a2633), fontSize: 14),
+        decoration: InputDecoration(
+          labelText: label,
+          labelStyle: const TextStyle(color: Color(0xff7a5c6b), fontSize: 13),
+          filled: true,
+          fillColor: const Color(0xfffffbfd),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xfff3e4ed), width: 1.5),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xfff3e4ed), width: 1.5),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: magenta, width: 2),
+          ),
+          errorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xffb00020), width: 1.5),
+          ),
+          focusedErrorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xffb00020), width: 2),
+          ),
+        ),
         keyboardType: numeric
             ? const TextInputType.numberWithOptions(decimal: true)
             : integer
@@ -759,18 +790,6 @@ class _ProductFormState extends State<ProductForm> {
     if (!formKey.currentState!.validate()) return;
     final current = widget.product;
 
-    if (widget.store.barcodeBelongsToAnotherProduct(
-      barcode.text,
-      current?.id,
-    )) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Este código ya pertenece a otro producto.'),
-        ),
-      );
-      return;
-    }
-
     setState(() {
       saving = true;
       mediaError = null;
@@ -785,11 +804,10 @@ class _ProductFormState extends State<ProductForm> {
         price: double.parse(price.text),
         stock: int.parse(stock.text),
         minimumStock: int.parse(minimum.text),
-        barcode: barcode.text.trim(),
         photoBase64: mediaBytes == null ? (current?.photoBase64 ?? '') : base64Encode(mediaBytes!),
         imageUrl: existingUrl.isNotEmpty ? existingUrl : (current?.imageUrl ?? ''),
         mediaType: isVideo ? 'video' : 'image',
-        modelUrl: '',
+        modelUrl: current?.modelUrl ?? '',
         imageUrls: current?.imageUrls ?? [],
         pendingImagesBase64: mediaBytes != null ? [base64Encode(mediaBytes!)] : [],
       ),

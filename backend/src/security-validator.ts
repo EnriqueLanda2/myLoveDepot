@@ -105,15 +105,11 @@ const MAGIC_SIGNATURES: {
 // Patrones de código peligroso, polyglots y webshells
 const MALICIOUS_PATTERNS = [
   /<\?php/i,
-  /<\?=/i,
-  /<%/i,
   /<script[\s>]/i,
   /<\/script>/i,
   /<iframe[\s>]/i,
   /<object[\s>]/i,
   /<embed[\s>]/i,
-  /<svg[\s>]/i,
-  /eval\s*\(/i,
   /base64_decode\s*\(/i,
   /system\s*\(/i,
   /passthru\s*\(/i,

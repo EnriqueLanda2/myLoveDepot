@@ -361,6 +361,16 @@ class _StockDialogState extends State<_StockDialog> {
     if (result != null) {
       setState(() => error = result);
     } else if (mounted) {
+      final label = _isIncoming ? 'Entrada' : 'Salida';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '¡$label registrada! ${parsed}x "${widget.product.name}" · Stock: $_projectedStock',
+          ),
+          backgroundColor: _isIncoming ? _C.green : _C.magenta,
+          duration: const Duration(seconds: 3),
+        ),
+      );
       Navigator.pop(context);
     }
   }

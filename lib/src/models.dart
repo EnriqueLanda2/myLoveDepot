@@ -35,7 +35,6 @@ class Product {
     required this.price,
     required this.stock,
     required this.minimumStock,
-    this.barcode = '',
     this.photoBase64 = '',
     this.imageUrl = '',
     this.modelUrl = '',
@@ -54,7 +53,6 @@ class Product {
   double price;
   int stock;
   int minimumStock;
-  String barcode;
   String photoBase64;
   String imageUrl;
   String modelUrl;
@@ -109,7 +107,6 @@ class Product {
         'price': price,
         'stock': stock,
         'minimumStock': minimumStock,
-        'barcode': barcode,
         'photoBase64': photoBase64,
         'imageUrl': imageUrl,
         'modelUrl': modelUrl,
@@ -128,7 +125,6 @@ class Product {
         price: (json['price'] as num).toDouble(),
         stock: json['stock'] as int,
         minimumStock: json['minimumStock'] as int,
-        barcode: json['barcode'] as String? ?? '',
         photoBase64: json['photoBase64'] as String? ?? '',
         imageUrl: json['imageUrl'] as String? ?? '',
         modelUrl: json['modelUrl'] as String? ?? '',
@@ -174,11 +170,11 @@ class StockMovement {
       };
 
   factory StockMovement.fromJson(Map<String, dynamic> json) => StockMovement(
-        id: json['id'] as String,
+        id: json['id'].toString(),
         productId: json['productId'] as String,
-        productName: json['productName'] as String,
+        productName: json['productName'] as String? ?? '',
         type: MovementType.values.byName(json['type'] as String),
-        quantity: json['quantity'] as int,
+        quantity: (json['quantity'] as num).toInt(),
         createdAt: DateTime.parse(json['createdAt'] as String),
         unitPrice: (json['unitPrice'] as num?)?.toDouble() ?? 0.0,
         note: json['note'] as String? ?? '',
