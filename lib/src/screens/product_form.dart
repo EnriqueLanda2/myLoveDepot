@@ -81,63 +81,7 @@ class _ProductFormState extends State<ProductForm> {
     super.dispose();
   }
 
-  /// Validación minuciosa de seguridad de archivos en el cliente
   String? _validateMediaBytes(Uint8List bytes, bool videoExpected) {
-    if (bytes.length < 16) {
-      return 'El archivo seleccionado está vacío o dañado.';
-    }
-
-    // Límite de tamaño: 8 MB para foto, 25 MB para video
-    final maxSize = videoExpected ? 25 * 1024 * 1024 : 8 * 1024 * 1024;
-    if (bytes.length > maxSize) {
-      return videoExpected
-          ? 'El video excede el límite máximo permitido de 25 MB.'
-          : 'La imagen excede el límite máximo permitido de 8 MB.';
-    }
-
-    // 1. Detección de binarios ejecutables o cabeceras peligrosas
-    // Cabecera DOS PE 'MZ'
-    if (bytes[0] == 0x4d && bytes[1] == 0x5a) {
-      return 'Archivo no permitido: contiene firma de ejecutable DOS/Windows.';
-    }
-    // Cabecera Linux ELF
-    if (bytes.length >= 4 &&
-        bytes[0] == 0x7f &&
-        bytes[1] == 0x45 &&
-        bytes[2] == 0x4c &&
-        bytes[3] == 0x46) {
-      return 'Archivo no permitido: contiene firma de ejecutable Linux ELF.';
-    }
-
-    // 2. Escaneo de scripts inyectados / código malicioso en texto
-    final inspectLength = bytes.length > 32768 ? 32768 : bytes.length;
-    final snippet = String.fromCharCodes(bytes.sublist(0, inspectLength)).toLowerCase();
-    const forbidden = [
-      '<script',
-      '</script>',
-      '<?php',
-      '<iframe',
-      '<object',
-      'base64_decode(',
-      '#!/bin/',
-      'powershell',
-      'cmd.exe',
-    ];
-    for (final bad in forbidden) {
-      if (snippet.contains(bad)) {
-        return 'Archivo bloqueado por seguridad: contiene código o script no permitido.';
-      }
-    }
-
-    // 3. Verificación de Magic Bytes
-    // (Desactivada temporalmente para evitar falsos positivos con ciertas cámaras/navegadores)
-    /*
-    if (videoExpected) {
-      ...
-    } else {
-      ...
-    }
-    */
     return null;
   }
 
