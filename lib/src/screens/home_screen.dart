@@ -325,6 +325,11 @@ class _HomeScreenState extends State<HomeScreen> {
         selectedIcon: Icon(Icons.swap_horiz_rounded),
         label: Text('Movimientos'),
       ),
+      NavigationRailDestination(
+        icon: Icon(Icons.account_balance_wallet_outlined),
+        selectedIcon: Icon(Icons.account_balance_wallet_rounded),
+        label: Text('Finanzas'),
+      ),
     ];
 
     return Container(
@@ -414,6 +419,11 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: Icon(Icons.swap_horiz_rounded),
             label: 'Movimientos',
           ),
+          NavigationDestination(
+            icon: Icon(Icons.account_balance_wallet_outlined),
+            selectedIcon: Icon(Icons.account_balance_wallet_rounded),
+            label: 'Finanzas',
+          ),
         ],
       ),
     );
@@ -431,7 +441,8 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         1 => _productsPage(),
         2 => CategoriesPage(store: widget.store),
-        _ => _MovementsPage(store: widget.store),
+        3 => _MovementsPage(store: widget.store),
+        _ => _FinanzasPage(store: widget.store),
       };
 
   Widget _productsPage() {
@@ -2798,6 +2809,273 @@ class _InstallStep extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _FinanzasPage extends StatefulWidget {
+  const _FinanzasPage({required this.store});
+  final InventoryStore store;
+
+  @override
+  State<_FinanzasPage> createState() => _FinanzasPageState();
+}
+
+class _FinanzasPageState extends State<_FinanzasPage> {
+  final _fundController = TextEditingController();
+
+  @override
+  void dispose() {
+    _fundController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _showFundDialog() async {
+    _fundController.text = widget.store.walletBaseBalance.toStringAsFixed(2);
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Configurar Fondo Inicial', style: TextStyle(color: _C.magenta, fontWeight: FontWeight.bold)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        content: TextFormField(
+          controller: _fundController,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: InputDecoration(
+            labelText: 'Monto (\$) inicial',
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: const BorderSide(width: 0.5)),
+            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: const BorderSide(color: Color(0xfff3e4ed), width: 0.5)),
+            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: const BorderSide(color: _C.magenta, width: 1.0)),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar', style: TextStyle(color: _C.textSecondary)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final val = double.tryParse(_fundController.text) ?? 0.0;
+              widget.store.setWalletBaseBalance(val);
+              Navigator.pop(ctx);
+              setState(() {});
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _C.magenta,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+            ),
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final expenses = widget.store.movements.where((m) => m.type == MovementType.expense).toList();
+    final totalExpenses = expenses.fold(0.0, (sum, m) => sum + m.unitPrice);
+    final currentBalance = widget.store.walletBaseBalance - totalExpenses;
+
+    final stats = <String, double>{};
+    for (final e in expenses) {
+      final note = e.note.trim().isEmpty ? 'Sin descripción' : e.note.trim();
+      stats[note] = (stats[note] ?? 0) + e.unitPrice;
+    }
+    final sortedStats = stats.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 900),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: _PageHeader(
+                      icon: Icons.account_balance_wallet_rounded,
+                      title: 'FINANZAS PERSONALES',
+                      subtitle: 'Control de tus gastos y saldo disponible',
+                    ),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: _showFundDialog,
+                    icon: const Icon(Icons.edit, size: 18),
+                    label: const Text('FONDO INICIAL', style: TextStyle(fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _C.bgCard,
+                      foregroundColor: _C.magenta,
+                      elevation: 0,
+                      side: const BorderSide(color: _C.magenta, width: 1),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: _SummaryCard(
+                      title: 'FONDO INICIAL',
+                      value: '\$${widget.store.walletBaseBalance.toStringAsFixed(2)}',
+                      icon: Icons.account_balance,
+                      color: Colors.blue,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: _SummaryCard(
+                      title: 'GASTOS TOTALES',
+                      value: '-\$${totalExpenses.toStringAsFixed(2)}',
+                      icon: Icons.trending_down_rounded,
+                      color: Colors.orange,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: _SummaryCard(
+                      title: 'SALDO DISPONIBLE',
+                      value: '\$${currentBalance.toStringAsFixed(2)}',
+                      icon: Icons.account_balance_wallet,
+                      color: currentBalance < 0 ? Colors.red : _C.green,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 32),
+              const Text(
+                'ESTADÍSTICAS DE GASTOS',
+                style: TextStyle(
+                  color: _C.textSecondary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.2,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: sortedStats.isEmpty
+                    ? _EmptyState(
+                        icon: Icons.pie_chart_outline,
+                        message: 'Aún no has registrado ningún gasto personal.',
+                      )
+                    : ListView.separated(
+                        itemCount: sortedStats.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (context, index) {
+                          final entry = sortedStats[index];
+                          final percentage = totalExpenses > 0 ? (entry.value / totalExpenses) * 100 : 0.0;
+                          return Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                            decoration: BoxDecoration(
+                              color: _C.bgCard,
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: _C.strokeLight, width: 1),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        entry.key,
+                                        style: const TextStyle(fontWeight: FontWeight.bold, color: _C.textPrimary, fontSize: 14),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      LinearProgressIndicator(
+                                        value: percentage / 100,
+                                        backgroundColor: Colors.orange.withValues(alpha: 0.1),
+                                        color: Colors.orange,
+                                        borderRadius: BorderRadius.circular(4),
+                                        minHeight: 6,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 24),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Text(
+                                      '\$${entry.value.toStringAsFixed(2)}',
+                                      style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.orange, fontSize: 15),
+                                    ),
+                                    Text(
+                                      '${percentage.toStringAsFixed(1)}%',
+                                      style: TextStyle(color: _C.textSecondary.withValues(alpha: 0.8), fontSize: 11, fontWeight: FontWeight.bold),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SummaryCard extends StatelessWidget {
+  const _SummaryCard({required this.title, required this.value, required this.icon, required this.color});
+  final String title;
+  final String value;
+  final IconData icon;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: _C.bgCard,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withValues(alpha: 0.2), width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.05),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: color, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(color: color.withValues(alpha: 0.8), fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 0.5),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              style: TextStyle(color: color, fontSize: 24, fontWeight: FontWeight.w900, letterSpacing: -0.5),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

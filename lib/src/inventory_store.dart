@@ -12,7 +12,9 @@ class InventoryStore extends ChangeNotifier {
   static const _categoriesKey = 'depot_categories_v1';
   static const _tokenKey = 'depot_auth_token_v1';
   static const _roleKey = 'depot_auth_role_v1';
+  static const _walletBaseKey = 'depot_wallet_base_v1';
 
+  double walletBaseBalance = 0.0;
   final List<Product> _products = [];
   final List<StockMovement> _movements = [];
   final List<ProductCategory> _categories = [];
@@ -137,6 +139,7 @@ class InventoryStore extends ChangeNotifier {
     final savedProducts = preferences.getString(_productsKey);
     final savedMovements = preferences.getString(_movementsKey);
     final savedCategories = preferences.getString(_categoriesKey);
+    walletBaseBalance = preferences.getDouble(_walletBaseKey) ?? 0.0;
 
     if (savedCategories != null) {
       _categories.addAll(
@@ -207,6 +210,13 @@ class InventoryStore extends ChangeNotifier {
     final preferences = await SharedPreferences.getInstance();
     await preferences.remove(_tokenKey);
     await preferences.remove(_roleKey);
+    notifyListeners();
+  }
+
+  Future<void> setWalletBaseBalance(double value) async {
+    walletBaseBalance = value;
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setDouble(_walletBaseKey, value);
     notifyListeners();
   }
 
