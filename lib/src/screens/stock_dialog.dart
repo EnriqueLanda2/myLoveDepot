@@ -170,7 +170,19 @@ class _StockDialogState extends State<_StockDialog> {
                         icon: Icons.remove_rounded,
                         color: _C.magenta,
                         selected: !_isIncoming,
-                        onTap: () => setState(() => type = MovementType.outgoing),
+                        onTap: () {
+                          if (widget.product.stock <= 0) {
+                            setState(() => error = 'No hay stock disponible para salidas.');
+                            return;
+                          }
+                          setState(() {
+                            type = MovementType.outgoing;
+                            error = null;
+                            if (_parsedQty > widget.product.stock) {
+                              quantity.text = '${widget.product.stock}';
+                            }
+                          });
+                        },
                       ),
                     ),
                   ],
@@ -188,7 +200,10 @@ class _StockDialogState extends State<_StockDialog> {
                   onTap: () {
                     final current = _parsedQty;
                     if (current > 1) {
-                      setState(() => quantity.text = '${current - 1}');
+                      setState(() {
+                        quantity.text = '${current - 1}';
+                        error = null;
+                      });
                     }
                   },
                 ),
@@ -204,7 +219,7 @@ class _StockDialogState extends State<_StockDialog> {
                       fontWeight: FontWeight.w900,
                       color: _C.textPrimary,
                     ),
-                    onChanged: (_) => setState(() {}),
+                    onChanged: (_) => setState(() => error = null),
                     decoration: InputDecoration(
                       labelText: 'Cantidad',
                       errorText: error,
@@ -226,7 +241,14 @@ class _StockDialogState extends State<_StockDialog> {
                   icon: Icons.add_rounded,
                   onTap: () {
                     final current = _parsedQty;
-                    setState(() => quantity.text = '${current + 1}');
+                    if (!_isIncoming && current >= widget.product.stock) {
+                      setState(() => error = 'Límite de stock alcanzado (${widget.product.stock}).');
+                      return;
+                    }
+                    setState(() {
+                      quantity.text = '${current + 1}';
+                      error = null;
+                    });
                   },
                 ),
               ],
@@ -350,6 +372,10 @@ class _StockDialogState extends State<_StockDialog> {
     final parsed = int.tryParse(quantity.text);
     if (parsed == null || parsed <= 0) {
       setState(() => error = 'Escribe una cantidad válida');
+      return;
+    }
+    if (!_isIncoming && parsed > widget.product.stock) {
+      setState(() => error = 'No puedes retirar más del stock actual (${widget.product.stock}).');
       return;
     }
     final result = await widget.store.moveStock(
