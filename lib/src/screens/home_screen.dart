@@ -2430,12 +2430,6 @@ class _MovementsPageState extends State<_MovementsPage> {
                             onSelected: (_) => setState(
                                 () => _typeFilter = MovementType.outgoing),
                           ),
-                          _FilterChip(
-                            label: 'GASTOS PERSONALES',
-                            selected: _typeFilter == MovementType.expense,
-                            onSelected: (_) => setState(
-                                () => _typeFilter = MovementType.expense),
-                          ),
                         ],
                       ),
                       const SizedBox(height: 12),
@@ -2791,70 +2785,112 @@ class _FinanzasPageState extends State<_FinanzasPage> {
     }
     final sortedStats = stats.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
 
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 900),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isMobile = constraints.maxWidth < 650;
+        
+        final summaryCards = [
+          _SummaryCard(
+            title: 'FONDO INICIAL',
+            value: '\$${widget.store.walletBaseBalance.toStringAsFixed(2)}',
+            icon: Icons.account_balance,
+            color: Colors.blue,
+          ),
+          _SummaryCard(
+            title: 'GASTOS TOTALES',
+            value: '-\$${totalExpenses.toStringAsFixed(2)}',
+            icon: Icons.trending_down_rounded,
+            color: Colors.orange,
+          ),
+          _SummaryCard(
+            title: 'SALDO DISPONIBLE',
+            value: '\$${currentBalance.toStringAsFixed(2)}',
+            icon: Icons.account_balance_wallet,
+            color: currentBalance < 0 ? Colors.red : _C.green,
+          ),
+        ];
+
+        return Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 900),
+            child: Padding(
+              padding: EdgeInsets.all(isMobile ? 16 : 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: _PageHeader(
-                      icon: Icons.account_balance_wallet_rounded,
-                      title: 'FINANZAS PERSONALES',
-                      subtitle: 'Control de tus gastos y saldo disponible',
+                  if (isMobile)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _PageHeader(
+                          icon: Icons.account_balance_wallet_rounded,
+                          title: 'FINANZAS PERSONALES',
+                          subtitle: 'Control de tus gastos y saldo disponible',
+                        ),
+                        const SizedBox(height: 16),
+                        ElevatedButton.icon(
+                          onPressed: _showFundDialog,
+                          icon: const Icon(Icons.edit, size: 18),
+                          label: const Text('FONDO INICIAL', style: TextStyle(fontWeight: FontWeight.bold)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _C.bgCard,
+                            foregroundColor: _C.magenta,
+                            elevation: 0,
+                            side: const BorderSide(color: _C.magenta, width: 1),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                          ),
+                        ),
+                      ],
+                    )
+                  else
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: _PageHeader(
+                            icon: Icons.account_balance_wallet_rounded,
+                            title: 'FINANZAS PERSONALES',
+                            subtitle: 'Control de tus gastos y saldo disponible',
+                          ),
+                        ),
+                        ElevatedButton.icon(
+                          onPressed: _showFundDialog,
+                          icon: const Icon(Icons.edit, size: 18),
+                          label: const Text('FONDO INICIAL', style: TextStyle(fontWeight: FontWeight.bold)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _C.bgCard,
+                            foregroundColor: _C.magenta,
+                            elevation: 0,
+                            side: const BorderSide(color: _C.magenta, width: 1),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                  ElevatedButton.icon(
-                    onPressed: _showFundDialog,
-                    icon: const Icon(Icons.edit, size: 18),
-                    label: const Text('FONDO INICIAL', style: TextStyle(fontWeight: FontWeight.bold)),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _C.bgCard,
-                      foregroundColor: _C.magenta,
-                      elevation: 0,
-                      side: const BorderSide(color: _C.magenta, width: 1),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  const SizedBox(height: 24),
+                  if (isMobile)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        summaryCards[0],
+                        const SizedBox(height: 12),
+                        summaryCards[1],
+                        const SizedBox(height: 12),
+                        summaryCards[2],
+                      ],
+                    )
+                  else
+                    Row(
+                      children: [
+                        Expanded(child: summaryCards[0]),
+                        const SizedBox(width: 16),
+                        Expanded(child: summaryCards[1]),
+                        const SizedBox(width: 16),
+                        Expanded(child: summaryCards[2]),
+                      ],
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: _SummaryCard(
-                      title: 'FONDO INICIAL',
-                      value: '\$${widget.store.walletBaseBalance.toStringAsFixed(2)}',
-                      icon: Icons.account_balance,
-                      color: Colors.blue,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: _SummaryCard(
-                      title: 'GASTOS TOTALES',
-                      value: '-\$${totalExpenses.toStringAsFixed(2)}',
-                      icon: Icons.trending_down_rounded,
-                      color: Colors.orange,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: _SummaryCard(
-                      title: 'SALDO DISPONIBLE',
-                      value: '\$${currentBalance.toStringAsFixed(2)}',
-                      icon: Icons.account_balance_wallet,
-                      color: currentBalance < 0 ? Colors.red : _C.green,
-                    ),
-                  ),
-                ],
-              ),
               const SizedBox(height: 32),
               const Text(
                 'ESTADÍSTICAS DE GASTOS',
@@ -2930,6 +2966,8 @@ class _FinanzasPageState extends State<_FinanzasPage> {
           ),
         ),
       ),
+    );
+      },
     );
   }
 }
