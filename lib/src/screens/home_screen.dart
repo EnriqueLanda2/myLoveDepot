@@ -2336,85 +2336,11 @@ class _MovementsPageState extends State<_MovementsPage> {
     );
   }
 
-  Future<void> _showExpenseDialog(BuildContext context) async {
-    final amountCtrl = TextEditingController();
-    final noteCtrl = TextEditingController();
-    String? error;
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setState) => AlertDialog(
-          title: const Text('Registrar Gasto Personal', style: TextStyle(color: _C.magenta, fontWeight: FontWeight.bold)),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (error != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Text(error!, style: const TextStyle(color: Colors.red, fontSize: 13)),
-                ),
-              TextFormField(
-                controller: amountCtrl,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: InputDecoration(
-                  labelText: 'Monto (\$)',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: const BorderSide(width: 0.5)),
-                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: const BorderSide(color: Color(0xfff3e4ed), width: 0.5)),
-                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: const BorderSide(color: _C.magenta, width: 1.0)),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: noteCtrl,
-                decoration: InputDecoration(
-                  labelText: 'Descripción',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: const BorderSide(width: 0.5)),
-                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: const BorderSide(color: Color(0xfff3e4ed), width: 0.5)),
-                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: const BorderSide(color: _C.magenta, width: 1.0)),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancelar', style: TextStyle(color: _C.textSecondary)),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                final amount = double.tryParse(amountCtrl.text) ?? 0.0;
-                if (amount <= 0) {
-                  setState(() => error = 'El monto debe ser mayor a cero.');
-                  return;
-                }
-                final note = noteCtrl.text.trim();
-                if (note.isEmpty) {
-                  setState(() => error = 'Escribe una descripción.');
-                  return;
-                }
-                final fail = await widget.store.addExpense(amount: amount, note: note);
-                if (fail != null) {
-                  setState(() => error = fail);
-                } else {
-                  if (ctx.mounted) Navigator.pop(ctx);
-                }
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _C.magenta,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-              ),
-              child: const Text('Guardar'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+
 
   List<StockMovement> get _filtered {
     return widget.store.movements.where((m) {
+      if (m.type == MovementType.expense) return false;
       if (_typeFilter != null && m.type != _typeFilter) return false;
       if (_monthFilter != null && m.createdAt.month != _monthFilter) return false;
       if (_yearFilter != null && m.createdAt.year != _yearFilter) return false;
@@ -2429,12 +2355,13 @@ class _MovementsPageState extends State<_MovementsPage> {
   @override
   Widget build(BuildContext context) {
     final filtered = _filtered;
+    final stockMovements = widget.store.movements.where((m) => m.type != MovementType.expense).toList();
     final incomingCount =
-        widget.store.movements.where((m) => m.type == MovementType.incoming).length;
+        stockMovements.where((m) => m.type == MovementType.incoming).length;
     final outgoingCount =
-        widget.store.movements.where((m) => m.type == MovementType.outgoing).length;
+        stockMovements.where((m) => m.type == MovementType.outgoing).length;
 
-    final availableYears = widget.store.movements.map((m) => m.createdAt.year).toSet().toList()..sort();
+    final availableYears = stockMovements.map((m) => m.createdAt.year).toSet().toList()..sort();
     if (availableYears.isEmpty) availableYears.add(DateTime.now().year);
 
     return Center(
@@ -2453,21 +2380,9 @@ class _MovementsPageState extends State<_MovementsPage> {
                       icon: Icons.swap_horiz_rounded,
                       title: 'HISTORIAL DE MOVIMIENTOS',
                       subtitle:
-                          '${widget.store.movements.length} movs registrados  ·  $incomingCount entradas  ·  $outgoingCount salidas',
+                          '${stockMovements.length} movs registrados  ·  $incomingCount entradas  ·  $outgoingCount salidas',
                     ),
                   ),
-                  ElevatedButton.icon(
-                    onPressed: () => _showExpenseDialog(context),
-                    icon: const Icon(Icons.add, size: 18),
-                    label: const Text('NUEVO GASTO', style: TextStyle(fontWeight: FontWeight.bold)),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _C.magenta,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
                   TextButton.icon(
                     onPressed: () => setState(() => _showFilters = !_showFilters),
                     icon: Icon(_showFilters ? Icons.expand_less : Icons.filter_alt_rounded, color: _C.magenta),
