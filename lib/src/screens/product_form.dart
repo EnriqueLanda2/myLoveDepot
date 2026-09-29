@@ -559,6 +559,7 @@ class _ProductFormState extends State<ProductForm> {
         key: ValueKey('$categoryEpoch-$category'),
         initialValue: category,
         isExpanded: true,
+        borderRadius: BorderRadius.circular(24),
         decoration: InputDecoration(
           labelText: 'Categoría',
           labelStyle: const TextStyle(color: Color(0xff7a5c6b), fontSize: 13),
@@ -566,24 +567,24 @@ class _ProductFormState extends State<ProductForm> {
           fillColor: const Color(0xfffffbfd),
           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Color(0xfff3e4ed), width: 1.5),
+            borderRadius: BorderRadius.circular(30),
+            borderSide: const BorderSide(color: Color(0xfff3e4ed), width: 0.5),
           ),
           enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Color(0xfff3e4ed), width: 1.5),
+            borderRadius: BorderRadius.circular(30),
+            borderSide: const BorderSide(color: Color(0xfff3e4ed), width: 0.5),
           ),
           focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Color(0xffd94f87), width: 2),
+            borderRadius: BorderRadius.circular(30),
+            borderSide: const BorderSide(color: Color(0xffd94f87), width: 1.0),
           ),
           errorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Color(0xffb00020), width: 1.5),
+            borderRadius: BorderRadius.circular(30),
+            borderSide: const BorderSide(color: Color(0xffb00020), width: 0.5),
           ),
           focusedErrorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Color(0xffb00020), width: 2),
+            borderRadius: BorderRadius.circular(30),
+            borderSide: const BorderSide(color: Color(0xffb00020), width: 1.0),
           ),
         ),
         items: [

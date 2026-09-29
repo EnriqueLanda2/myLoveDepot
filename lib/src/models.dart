@@ -1,4 +1,4 @@
-enum MovementType { incoming, outgoing }
+enum MovementType { incoming, outgoing, expense }
 
 /// Categoría registrada del catálogo. Se llama así, y no `Category`, porque
 /// `flutter/foundation` ya exporta una anotación con ese nombre.

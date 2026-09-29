@@ -397,17 +397,22 @@ app.get('/api/movements', async (request, response) => {
   const offset = Math.max(0, Number(request.query.offset ?? 0));
 
   const [rows] = await pool.query<mysql.RowDataPacket[]>(`
-    SELECT m.id, m.product_id productId, p.name productName,
+    SELECT CAST(m.id AS CHAR) id, m.product_id productId, p.name productName,
       m.type, m.quantity, CAST(p.price AS DOUBLE) unitPrice,
       m.note, m.created_at createdAt
     FROM stock_movements m
     LEFT JOIN products p ON p.id = m.product_id
-    ORDER BY m.created_at DESC
+    UNION ALL
+    SELECT CONCAT('exp-', e.id) as id, '' as productId, 'Gasto Personal' as productName,
+      'expense' as type, 1 as quantity, CAST(e.amount AS DOUBLE) as unitPrice,
+      e.note, e.created_at as createdAt
+    FROM personal_expenses e
+    ORDER BY createdAt DESC
     LIMIT ? OFFSET ?
   `, [limit, offset]);
 
   const [countRows] = await pool.query<mysql.RowDataPacket[]>(
-    'SELECT COUNT(*) total FROM stock_movements',
+    'SELECT (SELECT COUNT(*) FROM stock_movements) + (SELECT COUNT(*) FROM personal_expenses) as total'
   );
   const total = Number(countRows[0]?.total ?? 0);
 
@@ -465,6 +470,20 @@ app.post('/api/products/:id/movements', async (request, response) => {
   } finally {
     connection.release();
   }
+});
+
+const expenseSchema = z.object({
+  amount: z.number().positive(),
+  note: z.string().max(255).optional().default(''),
+});
+
+app.post('/api/expenses', async (request, response) => {
+  const expense = expenseSchema.parse(request.body);
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    'INSERT INTO personal_expenses (amount, note) VALUES (?, ?)',
+    [expense.amount, expense.note],
+  );
+  response.status(201).json({ id: result.insertId });
 });
 
 const upload = multer({

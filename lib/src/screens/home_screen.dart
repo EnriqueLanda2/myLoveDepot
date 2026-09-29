@@ -1923,11 +1923,12 @@ class _CategorySelect extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       decoration: BoxDecoration(
         color: _C.bgDeep,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: _C.strokeLight, width: 1),
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: _C.strokeLight, width: 0.5),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String>(
+          borderRadius: BorderRadius.circular(24),
           value: effectiveValue,
           icon: const Icon(Icons.keyboard_arrow_down_rounded,
               size: 18, color: _C.magenta),
@@ -2318,16 +2319,93 @@ class _MovementsPageState extends State<_MovementsPage> {
       fillColor: const Color(0xfffffbfd),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Color(0xfff3e4ed), width: 1.5),
+        borderRadius: BorderRadius.circular(30),
+        borderSide: const BorderSide(color: Color(0xfff3e4ed), width: 0.5),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Color(0xfff3e4ed), width: 1.5),
+        borderRadius: BorderRadius.circular(30),
+        borderSide: const BorderSide(color: Color(0xfff3e4ed), width: 0.5),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: _C.magenta, width: 2),
+        borderRadius: BorderRadius.circular(30),
+        borderSide: const BorderSide(color: _C.magenta, width: 1.0),
+      ),
+    );
+  }
+
+  Future<void> _showExpenseDialog(BuildContext context) async {
+    final amountCtrl = TextEditingController();
+    final noteCtrl = TextEditingController();
+    String? error;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setState) => AlertDialog(
+          title: const Text('Registrar Gasto Personal', style: TextStyle(color: _C.magenta, fontWeight: FontWeight.bold)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (error != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Text(error!, style: const TextStyle(color: Colors.red, fontSize: 13)),
+                ),
+              TextFormField(
+                controller: amountCtrl,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(
+                  labelText: 'Monto (\$)',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: const BorderSide(width: 0.5)),
+                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: const BorderSide(color: Color(0xfff3e4ed), width: 0.5)),
+                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: const BorderSide(color: _C.magenta, width: 1.0)),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: noteCtrl,
+                decoration: InputDecoration(
+                  labelText: 'Descripción',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: const BorderSide(width: 0.5)),
+                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: const BorderSide(color: Color(0xfff3e4ed), width: 0.5)),
+                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: const BorderSide(color: _C.magenta, width: 1.0)),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar', style: TextStyle(color: _C.textSecondary)),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final amount = double.tryParse(amountCtrl.text) ?? 0.0;
+                if (amount <= 0) {
+                  setState(() => error = 'El monto debe ser mayor a cero.');
+                  return;
+                }
+                final note = noteCtrl.text.trim();
+                if (note.isEmpty) {
+                  setState(() => error = 'Escribe una descripción.');
+                  return;
+                }
+                final fail = await widget.store.addExpense(amount: amount, note: note);
+                if (fail != null) {
+                  setState(() => error = fail);
+                } else {
+                  if (ctx.mounted) Navigator.pop(ctx);
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _C.magenta,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+              ),
+              child: const Text('Guardar'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -2375,6 +2453,18 @@ class _MovementsPageState extends State<_MovementsPage> {
                           '${widget.store.movements.length} movs registrados  ·  $incomingCount entradas  ·  $outgoingCount salidas',
                     ),
                   ),
+                  ElevatedButton.icon(
+                    onPressed: () => _showExpenseDialog(context),
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('NUEVO GASTO', style: TextStyle(fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _C.magenta,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
                   TextButton.icon(
                     onPressed: () => setState(() => _showFilters = !_showFilters),
                     icon: Icon(_showFilters ? Icons.expand_less : Icons.filter_alt_rounded, color: _C.magenta),
@@ -2422,6 +2512,12 @@ class _MovementsPageState extends State<_MovementsPage> {
                             onSelected: (_) => setState(
                                 () => _typeFilter = MovementType.outgoing),
                           ),
+                          _FilterChip(
+                            label: 'GASTOS PERSONALES',
+                            selected: _typeFilter == MovementType.expense,
+                            onSelected: (_) => setState(
+                                () => _typeFilter = MovementType.expense),
+                          ),
                         ],
                       ),
                       const SizedBox(height: 12),
@@ -2430,6 +2526,7 @@ class _MovementsPageState extends State<_MovementsPage> {
                           Expanded(
                             child: DropdownButtonFormField<String?>(
                               initialValue: _categoryFilter,
+                              borderRadius: BorderRadius.circular(24),
                               decoration: _dropdownDecoration('Categoría'),
                               isExpanded: true,
                               items: [
@@ -2447,6 +2544,7 @@ class _MovementsPageState extends State<_MovementsPage> {
                           Expanded(
                             child: DropdownButtonFormField<int?>(
                               initialValue: _monthFilter,
+                              borderRadius: BorderRadius.circular(24),
                               decoration: _dropdownDecoration('Mes'),
                               items: const [
                                 DropdownMenuItem(value: null, child: Text('Todos los meses')),
@@ -2470,6 +2568,7 @@ class _MovementsPageState extends State<_MovementsPage> {
                           Expanded(
                             child: DropdownButtonFormField<int?>(
                               initialValue: _yearFilter,
+                              borderRadius: BorderRadius.circular(24),
                               decoration: _dropdownDecoration('Año'),
                               items: [
                                 const DropdownMenuItem(value: null, child: Text('Todos los años')),
@@ -2541,7 +2640,8 @@ class _MovementTileState extends State<_MovementTile> {
   Widget build(BuildContext context) {
     final movement = widget.movement;
     final incoming = movement.type == MovementType.incoming;
-    final color = incoming ? _C.green : _C.magenta;
+    final expense = movement.type == MovementType.expense;
+    final color = expense ? Colors.orange : (incoming ? _C.green : _C.magenta);
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hovering = true),
@@ -2580,7 +2680,7 @@ class _MovementTileState extends State<_MovementTile> {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
-                incoming ? Icons.south_west_rounded : Icons.north_east_rounded,
+                expense ? Icons.money_off : (incoming ? Icons.south_west_rounded : Icons.north_east_rounded),
                 color: color,
                 size: 18,
               ),
@@ -2624,7 +2724,7 @@ class _MovementTileState extends State<_MovementTile> {
                     ),
                   ),
                   child: Text(
-                    '${incoming ? '+' : '-'}${movement.quantity}',
+                    expense ? '-\$${movement.unitPrice.toStringAsFixed(2)}' : '${incoming ? '+' : '-'}${movement.quantity}',
                     style: TextStyle(
                       color: color,
                       fontWeight: FontWeight.w800,
@@ -2632,7 +2732,7 @@ class _MovementTileState extends State<_MovementTile> {
                     ),
                   ),
                 ),
-                if (!incoming && movement.unitPrice > 0)
+                if (!incoming && !expense && movement.unitPrice > 0)
                   Padding(
                     padding: const EdgeInsets.only(top: 4, right: 2),
                     child: Text(

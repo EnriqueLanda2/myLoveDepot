@@ -438,6 +438,40 @@ class InventoryStore extends ChangeNotifier {
     }
   }
 
+  Future<String?> addExpense({
+    required double amount,
+    required String note,
+  }) async {
+    if (amount <= 0) return 'El monto debe ser mayor que cero.';
+
+    _movements.insert(
+      0,
+      StockMovement(
+        id: 'exp-local-${DateTime.now().microsecondsSinceEpoch}',
+        productId: '',
+        productName: 'Gasto Personal',
+        type: MovementType.expense,
+        quantity: 1,
+        createdAt: DateTime.now(),
+        unitPrice: amount,
+        note: note,
+      ),
+    );
+    await _save();
+    notifyListeners();
+    
+    if (!api.enabled) return null;
+    
+    try {
+      await api.addExpense(amount: amount, note: note);
+      // Para obtener el ID real, podríamos forzar un _refreshRemote, 
+      // pero para optimizarlo, simplemente asume que se guardó.
+    } on Object catch (error) {
+      debugPrint('Gasto guardado localmente, pendiente de sincronizar: $error');
+    }
+    return null;
+  }
+
   Future<void> _save() async {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setString(

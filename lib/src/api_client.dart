@@ -158,6 +158,21 @@ class DepotApiClient {
     return (data['stock'] as num).toInt();
   }
 
+  Future<void> addExpense({
+    required double amount,
+    required String note,
+  }) async {
+    final response = await http.post(
+      _uri('/api/expenses'),
+      headers: _headers,
+      body: jsonEncode({
+        'amount': amount,
+        'note': note,
+      }),
+    );
+    _ensureSuccess(response);
+  }
+
   void _ensureSuccess(http.Response response) {
     if (response.statusCode == 401) {
       onUnauthorized?.call();

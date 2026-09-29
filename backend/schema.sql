@@ -52,3 +52,10 @@ CREATE TABLE IF NOT EXISTS stock_movements (
     REFERENCES products(id) ON DELETE CASCADE,
   INDEX idx_movements_product_date (product_id, created_at)
 );
+
+CREATE TABLE IF NOT EXISTS personal_expenses (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  amount DECIMAL(12,2) NOT NULL,
+  note VARCHAR(255) NOT NULL DEFAULT '',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
