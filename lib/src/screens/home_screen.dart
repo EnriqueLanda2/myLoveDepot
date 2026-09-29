@@ -1434,20 +1434,14 @@ class _CatalogProductCardState extends State<_CatalogProductCard> {
         transformAlignment: Alignment.center,
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: _hovering
-                ? _C.magenta.withValues(alpha: 0.3)
-                : const Color(0xffefe4eb),
-            width: _hovering ? 1.5 : 1,
-          ),
+          borderRadius: BorderRadius.circular(24),
           boxShadow: [
             BoxShadow(
               color: _hovering
-                  ? _C.magenta.withValues(alpha: 0.12)
-                  : Colors.black.withValues(alpha: 0.04),
-              blurRadius: _hovering ? 20 : 10,
-              offset: Offset(0, _hovering ? 8 : 4),
+                  ? _C.magenta.withValues(alpha: 0.15)
+                  : const Color(0xffe2d9e0).withValues(alpha: 0.5),
+              blurRadius: _hovering ? 24 : 16,
+              offset: Offset(0, _hovering ? 12 : 6),
             ),
           ],
         ),
@@ -1465,11 +1459,7 @@ class _CatalogProductCardState extends State<_CatalogProductCard> {
                   children: [
                     Container(
                       decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [Color(0xff2a2428), Color(0xff1a1618)],
-                        ),
+                        color: Color(0xfffaf8f9),
                       ),
                       child: memoryBytes != null
                           ? Image.memory(memoryBytes, fit: BoxFit.cover)
@@ -1685,15 +1675,15 @@ class _CatalogProductCardState extends State<_CatalogProductCard> {
                         ),
                         InkWell(
                           onTap: widget.onStockDialog,
-                          borderRadius: BorderRadius.circular(8),
+                          borderRadius: BorderRadius.circular(16),
                           child: Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 3),
+                                horizontal: 8, vertical: 4),
                             decoration: BoxDecoration(
                               color: _C.magenta
-                                  .withValues(alpha: 0.06),
+                                  .withValues(alpha: 0.08),
                               borderRadius:
-                                  BorderRadius.circular(6),
+                                  BorderRadius.circular(16),
                             ),
                             child: Row(
                               children: [
@@ -1735,7 +1725,7 @@ class _CatalogProductCardState extends State<_CatalogProductCard> {
                                 padding: EdgeInsets.zero,
                                 shape: RoundedRectangleBorder(
                                   borderRadius:
-                                      BorderRadius.circular(10),
+                                      BorderRadius.circular(24),
                                 ),
                                 textStyle: const TextStyle(
                                   fontSize: 9.5,
@@ -1753,7 +1743,7 @@ class _CatalogProductCardState extends State<_CatalogProductCard> {
                             child: Container(
                               decoration: BoxDecoration(
                                 borderRadius:
-                                    BorderRadius.circular(10),
+                                    BorderRadius.circular(24),
                                 gradient: isAgotado
                                     ? null
                                     : const LinearGradient(
@@ -1791,7 +1781,7 @@ class _CatalogProductCardState extends State<_CatalogProductCard> {
                                       RoundedRectangleBorder(
                                     borderRadius:
                                         BorderRadius.circular(
-                                            10),
+                                            24),
                                   ),
                                   textStyle: const TextStyle(
                                     fontSize: 9.5,
@@ -1826,14 +1816,16 @@ class _ImageActionBtn extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Colors.black.withValues(alpha: 0.5),
+      color: Colors.white.withValues(alpha: 0.95),
       shape: const CircleBorder(),
+      elevation: 4,
+      shadowColor: Colors.black.withValues(alpha: 0.15),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(6),
-          child: Icon(icon, color: Colors.white, size: 14),
+          padding: const EdgeInsets.all(7),
+          child: Icon(icon, color: const Color(0xff4a3d46), size: 16),
         ),
       ),
     );
@@ -3039,14 +3031,13 @@ class _SummaryCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: _C.bgCard,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withValues(alpha: 0.2), width: 1),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: color.withValues(alpha: 0.05),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+            color: color.withValues(alpha: 0.12),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
