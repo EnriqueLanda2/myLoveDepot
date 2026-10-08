@@ -78,7 +78,7 @@ conexión) y se sincroniza con la API cuando hay sesión e internet.
 | [Node.js](https://nodejs.org/) | 22 o superior | Ejecutar la API | Sí |
 | MySQL | 8.x | Base de datos (local, [Aiven](https://aiven.io/) u otro) | Sí |
 | Cuenta de [Cloudinary](https://cloudinary.com/) | gratuita | Guardar fotos de productos en producción | Solo en producción¹ |
-| API key de [Anthropic](https://console.anthropic.com/) | — | Análisis de fotos con IA (Claude) | No² |
+| API key de [Google Gemini](https://aistudio.google.com/apikey) | plan gratuito | Análisis de fotos con IA | No² |
 | [Docker](https://www.docker.com/) | reciente | Levantar MySQL local con un comando | No |
 | Python | 3.10 o superior | Generador de modelos 3D | No |
 | Android Studio / Xcode | reciente | Compilar APK Android / app iOS nativa | No |
@@ -88,7 +88,7 @@ y no hace falta Cloudinary.
 
 ² Sin la clave la app funciona igual: el análisis avisa que la IA no está
 configurada, el formulario se llena a mano y las fotografías de catálogo se
-siguen generando (eso corre en tu servidor, no en Claude).
+siguen generando (eso corre en tu servidor, no en la IA).
 
 > **macOS:** si instalaste Flutter en `~/development/flutter`, agrégalo al PATH
 > añadiendo esta línea a `~/.zshrc` y abriendo una terminal nueva:
@@ -152,7 +152,7 @@ WIFEY_PASSWORD=<contraseña de 12+ caracteres>
 HUSBAND_PASSWORD=<otra contraseña de 12+ caracteres>
 MEDIA_STORAGE=local
 ALLOWED_ORIGINS=http://localhost:8080
-ANTHROPIC_API_KEY=<tu clave de Anthropic, opcional>
+GEMINI_API_KEY=<tu clave de Gemini, opcional y gratuita>
 ```
 
 Para generar un `JWT_SECRET` seguro:
@@ -202,8 +202,11 @@ Todas viven en `backend/.env` (nunca lo subas a Git; ya está en `.gitignore`).
 | `CLOUDINARY_CLOUD_NAME` | Con `cloudinary` | Nombre de tu cuenta de Cloudinary. |
 | `CLOUDINARY_API_KEY` | Con `cloudinary` | API key de Cloudinary. |
 | `CLOUDINARY_API_SECRET` | Con `cloudinary` | API secret de Cloudinary. |
-| `ANTHROPIC_API_KEY` | No | Activa el análisis de fotos con Claude. Sin ella, la app avisa y se llena a mano. |
-| `AI_MODEL` | No | Modelo de Claude para el análisis. Por omisión `claude-sonnet-5-5`. |
+| `GEMINI_API_KEY` | No | Activa el análisis de fotos con Google Gemini (plan gratuito). Sin ella, la app avisa y se llena a mano. |
+| `GEMINI_MODEL` | No | Modelo de Gemini. Por omisión `gemini-flash-latest`. |
+| `AI_PROVIDER` | No | `gemini` o `anthropic`. Vacío: usa el que tenga clave, Gemini primero. |
+| `ANTHROPIC_API_KEY` | No | Alternativa de pago: análisis con Claude. |
+| `AI_MODEL` | No | Modelo de Claude. Por omisión `claude-sonnet-5-5` (`claude-haiku-5-5` es el más barato). |
 | `AI_TIMEOUT_MS` | No | Tiempo máximo de espera de la IA. Por omisión `60000`. |
 | `JWT_SECRET` | Sí | Clave para firmar las sesiones (64+ caracteres aleatorios). |
 | `WIFEY_USERNAME` / `HUSBAND_USERNAME` | No | Usuarios. Por omisión `wifey` y `husband`. |
@@ -309,11 +312,11 @@ Selecciona tu equipo de Apple Developer, conecta el iPhone y ejecuta
 
 ## IA: ficha y fotografías del producto
 
-Todo pasa por la API; la clave de Anthropic **nunca** llega a la app.
+Todo pasa por la API; las claves de IA **nunca** llegan a la app.
 
 | Endpoint | Qué hace |
 | --- | --- |
-| `POST /api/ai/analyze-product` | Recibe la foto (`multipart`, campo `image`) y le pide a Claude (visión, salida JSON estricta) `{ name, brand, shade, category, description, tags[], confidence }`. Le pasa las categorías existentes para que elija una de ellas cuando encaje; la descripción sale en español, 2–3 frases de venta. |
+| `POST /api/ai/analyze-product` | Recibe la foto (`multipart`, campo `image`) y le pide a la IA (visión, salida JSON estricta) `{ name, brand, shade, category, description, tags[], confidence }`. Le pasa las categorías existentes para que elija una de ellas cuando encaje; la descripción sale en español, 2–3 frases de venta. |
 | `POST /api/ai/product-photos` | Recibe la foto (`image`) y un juego (`set`, 0 o 1). Quita el fondo y compone 4 fotografías de 1024×1024 sobre fondos de estudio (blanco, rosa pastel, sombra suave, contraste; el segundo juego: degradado rosa, menta, arena y lavanda). Devuelve los JPEG en Base64. |
 
 Cómo se usa en la app: al subir la foto, la app llama a los dos endpoints a la
@@ -324,13 +327,16 @@ elegida se sube como foto principal del producto.
 
 Detalles que conviene saber:
 
-- **Modelo:** `claude-sonnet-5-5` por omisión (`AI_MODEL` para cambiarlo), con
-  esfuerzo bajo para que responda rápido. Si los filtros de seguridad rechazaran
-  una foto, la API la reintenta en el modelo de respaldo recomendado
-  (`fallbacks: "default"`).
+- **Proveedor:** Google Gemini (`gemini-flash-latest`) por omisión. Su plan
+  gratuito tiene límites diarios de uso; si se alcanzan, la app lo avisa y puedes
+  llenar la ficha a mano. Crea la clave en <https://aistudio.google.com/apikey>.
+  En el plan gratuito, Google puede usar lo que envías para mejorar sus productos.
+- **Alternativa de pago:** Claude, con `AI_PROVIDER=anthropic` y
+  `ANTHROPIC_API_KEY`. Con `AI_MODEL=claude-haiku-5-5` cuesta fracciones de
+  centavo por producto.
 - **Costo:** cada análisis es una sola llamada con una imagen reducida a ~1.5 MP;
-  las fotografías no usan Claude.
-- **Privacidad:** la foto del producto se envía a Anthropic para analizarla.
+  las fotografías de catálogo no usan la IA.
+- **Privacidad:** la foto del producto se envía al proveedor de IA para analizarla.
 - **Quitar el fondo** se hace en el servidor con `sharp` (`backend/src/product-photos.ts`):
   toma el color de los bordes como fondo y lo "inunda" hacia adentro. Funciona muy
   bien con **fondo liso** y contrastado; con fondos muy cargados no se puede
@@ -363,7 +369,8 @@ Las fotos con **fondo liso y contrastado** dan los mejores resultados.
 
 | Síntoma | Causa probable y solución |
 | --- | --- |
-| *"La IA no está configurada en el servidor"* | Agrega `ANTHROPIC_API_KEY` a `backend/.env` y reinicia la API. |
+| *"La IA no está configurada en el servidor"* | Agrega `GEMINI_API_KEY` a `backend/.env` y reinicia la API. |
+| *"Se alcanzó el límite gratuito de Gemini"* | Espera un rato o al día siguiente; mientras tanto llena la ficha a mano. |
 | Las fotografías generadas recortan mal el producto | Toma la foto sobre un fondo liso que contraste con el producto, con el producto completo y centrado. |
 | *"La app no tiene servidor configurado"* al iniciar sesión | Falta `--dart-define=API_BASE_URL=...` al ejecutar o compilar la app. |
 | *"No hay conexión con el servidor"* | La API no está corriendo, la URL es incorrecta, o el origen de la app no está en `ALLOWED_ORIGINS`. Revisa la consola del navegador (error CORS). |
@@ -396,7 +403,7 @@ test/                     Pruebas de lógica y de pantallas
 web/                      index.html, manifest e íconos de la PWA
 backend/                  API Express + TypeScript
   src/server.ts           Rutas de la API
-  src/ai.ts               Análisis de la foto con Claude
+  src/ai.ts               Análisis de la foto con IA (Gemini o Claude)
   src/product-photos.ts   Quitar fondo y componer fotografías de catálogo
   src/media-storage.ts    Fotos en Cloudinary o en disco (desarrollo)
   src/migrate.ts          Aplica schema.sql

@@ -34,5 +34,5 @@ services:
         sync: false
       - key: ALLOWED_ORIGINS
         sync: false
-      - key: ANTHROPIC_API_KEY
+      - key: GEMINI_API_KEY
         sync: false
