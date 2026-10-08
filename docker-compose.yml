@@ -1,0 +1,20 @@
+# MySQL local para desarrollo. En producción se usa Aiven (ver README).
+#   docker compose up -d
+# y en backend/.env:
+#   DATABASE_URL=mysql://depot:depot@localhost:3306/my_love_depot
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: my_love_depot
+      MYSQL_USER: depot
+      MYSQL_PASSWORD: depot
+      MYSQL_ROOT_PASSWORD: depot-root
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+
+volumes:
+  mysql-data:

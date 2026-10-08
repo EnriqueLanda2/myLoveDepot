@@ -39,8 +39,10 @@ class CategoriesPage extends StatelessWidget {
     final categories = store.categories.toList()
       ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
+    final isMobile = MediaQuery.sizeOf(context).width < 600;
+
     return Padding(
-      padding: const EdgeInsets.all(24),
+      padding: EdgeInsets.all(isMobile ? 12 : 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -66,7 +68,8 @@ class CategoriesPage extends StatelessWidget {
                   color: _C.magenta.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(Icons.label_rounded, color: _C.magenta, size: 20),
+                child: const Icon(Icons.label_rounded,
+                    color: _C.magenta, size: 20),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -84,7 +87,9 @@ class CategoriesPage extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      '${categories.length} categorías registradas  ·  organiza tu inventario',
+                      isMobile
+                          ? '${categories.length} registradas'
+                          : '${categories.length} categorías registradas  ·  organiza tu inventario',
                       style: TextStyle(
                         color: _C.textSecondary.withValues(alpha: 0.8),
                         fontSize: 11,
@@ -112,9 +117,9 @@ class CategoriesPage extends StatelessWidget {
                 child: FilledButton.icon(
                   onPressed: () => _edit(context),
                   icon: const Icon(Icons.add_rounded, size: 16),
-                  label: const Text(
-                    'NUEVA CATEGORÍA',
-                    style: TextStyle(
+                  label: Text(
+                    isMobile ? 'NUEVA' : 'NUEVA CATEGORÍA',
+                    style: const TextStyle(
                       fontWeight: FontWeight.w800,
                       letterSpacing: 1.2,
                       fontSize: 12,
@@ -124,7 +129,8 @@ class CategoriesPage extends StatelessWidget {
                     backgroundColor: Colors.transparent,
                     foregroundColor: Colors.white,
                     shadowColor: Colors.transparent,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 10),
                   ),
                 ),
               ),
@@ -178,7 +184,8 @@ class CategoriesPage extends StatelessWidget {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          'Crea la primera con el botón de arriba.',
+                          'Las categorías agrupan tus productos (ej. Hombre, Mujer).\nCrea la primera con el botón "Nueva".',
+                          textAlign: TextAlign.center,
                           style: TextStyle(
                             color: _C.textSecondary.withValues(alpha: 0.7),
                             fontSize: 13,
@@ -205,8 +212,7 @@ class CategoriesPage extends StatelessWidget {
     );
   }
 
-  Future<void> _edit(BuildContext context,
-      [ProductCategory? category]) async {
+  Future<void> _edit(BuildContext context, [ProductCategory? category]) async {
     final controller = TextEditingController(text: category?.name);
     String? error;
     try {
@@ -214,8 +220,8 @@ class CategoriesPage extends StatelessWidget {
         context: context,
         builder: (dialogContext) => StatefulBuilder(
           builder: (dialogContext, setDialogState) => AlertDialog(
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(24)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
             title: Row(
               children: [
                 Container(
@@ -232,11 +238,11 @@ class CategoriesPage extends StatelessWidget {
                 ),
                 const SizedBox(width: 12),
                 Text(
-                  category == null
-                      ? 'NUEVA CATEGORÍA'
-                      : 'RENOMBRAR CATEGORÍA',
+                  category == null ? 'NUEVA CATEGORÍA' : 'RENOMBRAR CATEGORÍA',
                   style: const TextStyle(
-                      letterSpacing: 1.5, fontWeight: FontWeight.w800, fontSize: 15),
+                      letterSpacing: 1.5,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15),
                 ),
               ],
             ),
@@ -312,8 +318,7 @@ class CategoriesPage extends StatelessWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(24)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         title: Row(
           children: [
             Container(
@@ -328,8 +333,10 @@ class CategoriesPage extends StatelessWidget {
             const SizedBox(width: 12),
             const Text(
               'ELIMINAR CATEGORÍA',
-              style:
-                  TextStyle(letterSpacing: 1.5, fontWeight: FontWeight.w800, fontSize: 15),
+              style: TextStyle(
+                  letterSpacing: 1.5,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 15),
             ),
           ],
         ),
@@ -351,8 +358,7 @@ class CategoriesPage extends StatelessWidget {
             ),
             child: const Text(
               'ELIMINAR',
-              style: TextStyle(
-                  fontWeight: FontWeight.w800, letterSpacing: 1.2),
+              style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1.2),
             ),
           ),
         ],

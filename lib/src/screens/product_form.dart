@@ -69,13 +69,7 @@ class _ProductFormState extends State<ProductForm> {
 
   @override
   void dispose() {
-    for (final controller in [
-      name,
-      sku,
-      price,
-      stock,
-      minimum
-    ]) {
+    for (final controller in [name, sku, price, stock, minimum]) {
       controller.dispose();
     }
     super.dispose();
@@ -102,7 +96,8 @@ class _ProductFormState extends State<ProductForm> {
         setState(() => mediaError = error);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(error), backgroundColor: const Color(0xffb00020)),
+            SnackBar(
+                content: Text(error), backgroundColor: const Color(0xffb00020)),
           );
         }
         return;
@@ -134,7 +129,8 @@ class _ProductFormState extends State<ProductForm> {
         setState(() => mediaError = error);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(error), backgroundColor: const Color(0xffb00020)),
+            SnackBar(
+                content: Text(error), backgroundColor: const Color(0xffb00020)),
           );
         }
         return;
@@ -182,7 +178,9 @@ class _ProductFormState extends State<ProductForm> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(
-                    forVideo ? Icons.videocam_rounded : Icons.camera_alt_rounded,
+                    forVideo
+                        ? Icons.videocam_rounded
+                        : Icons.camera_alt_rounded,
                     color: const Color(0xffd94f87),
                   ),
                 ),
@@ -204,11 +202,14 @@ class _ProductFormState extends State<ProductForm> {
                     color: Colors.blue.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Icon(Icons.photo_library_rounded, color: Colors.blue),
+                  child: const Icon(Icons.photo_library_rounded,
+                      color: Colors.blue),
                 ),
                 title: const Text('Elegir de la Galería'),
                 subtitle: Text(
-                  forVideo ? 'Archivos MP4, WebM o MOV' : 'Archivos JPG, PNG o WebP',
+                  forVideo
+                      ? 'Archivos MP4, WebM o MOV'
+                      : 'Archivos JPG, PNG o WebP',
                 ),
                 onTap: () {
                   Navigator.pop(sheetContext);
@@ -232,6 +233,9 @@ class _ProductFormState extends State<ProductForm> {
     final hasMedia = mediaBytes != null || existingUrl.isNotEmpty;
     final screenWidth = MediaQuery.of(context).size.width;
     final isWide = screenWidth > 800;
+    // En teléfonos cada campo ocupa toda la fila para que se lea completo.
+    final isPhone = screenWidth < 520;
+    final halfWidth = isPhone ? 568.0 : (isWide ? 194.0 : 278.0);
 
     final mediaSection = SizedBox(
       width: isWide ? 400 : 568,
@@ -262,7 +266,8 @@ class _ProductFormState extends State<ProductForm> {
                 ),
                 if (hasMedia)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
                       color: Colors.green.shade50,
                       borderRadius: BorderRadius.circular(12),
@@ -292,8 +297,9 @@ class _ProductFormState extends State<ProductForm> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Sube una fotografía de alta calidad o un video del producto. Solo se admiten archivos verificados libres de código corrupto o malicioso.',
-              style: TextStyle(fontSize: 12, color: Color(0xff7a5c6b), height: 1.3),
+              'Opcional, pero ayuda a reconocer el producto en el catálogo. Usa buena luz y un fondo liso.',
+              style: TextStyle(
+                  fontSize: 12, color: Color(0xff7a5c6b), height: 1.3),
             ),
             const SizedBox(height: 14),
 
@@ -344,7 +350,9 @@ class _ProductFormState extends State<ProductForm> {
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            isVideo ? 'Video cargado con éxito' : 'Medio cargado',
+                            isVideo
+                                ? 'Video cargado con éxito'
+                                : 'Medio cargado',
                             style: const TextStyle(
                               color: Colors.white70,
                               fontSize: 12,
@@ -365,7 +373,8 @@ class _ProductFormState extends State<ProductForm> {
                         ),
                         child: IconButton(
                           tooltip: 'Quitar archivo',
-                          icon: const Icon(Icons.close, color: Colors.white, size: 18),
+                          icon: const Icon(Icons.close,
+                              color: Colors.white, size: 18),
                           onPressed: () {
                             setState(() {
                               mediaBytes = null;
@@ -389,11 +398,13 @@ class _ProductFormState extends State<ProductForm> {
                   child: OutlinedButton.icon(
                     onPressed: () => _showMediaSourceDialog(forVideo: false),
                     icon: const Icon(Icons.add_a_photo_rounded, size: 18),
-                    label: FittedBox(child: Text(hasMedia ? 'CAMBIAR FOTO' : 'SUBIR FOTO')),
+                    label: FittedBox(
+                        child: Text(hasMedia ? 'CAMBIAR FOTO' : 'SUBIR FOTO')),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: magenta,
                       side: const BorderSide(color: magenta),
-                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 12, horizontal: 4),
                     ),
                   ),
                 ),
@@ -402,11 +413,14 @@ class _ProductFormState extends State<ProductForm> {
                   child: OutlinedButton.icon(
                     onPressed: () => _showMediaSourceDialog(forVideo: true),
                     icon: const Icon(Icons.video_library_rounded, size: 18),
-                    label: FittedBox(child: Text(hasMedia ? 'CAMBIAR VIDEO' : 'SUBIR VIDEO')),
+                    label: FittedBox(
+                        child:
+                            Text(hasMedia ? 'CAMBIAR VIDEO' : 'SUBIR VIDEO')),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: const Color(0xff0284c7),
                       side: const BorderSide(color: Color(0xff0284c7)),
-                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 12, horizontal: 4),
                     ),
                   ),
                 ),
@@ -424,12 +438,14 @@ class _ProductFormState extends State<ProductForm> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.error_outline, color: Color(0xffb00020), size: 16),
+                    const Icon(Icons.error_outline,
+                        color: Color(0xffb00020), size: 16),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         mediaError!,
-                        style: const TextStyle(color: Color(0xffb00020), fontSize: 12),
+                        style: const TextStyle(
+                            color: Color(0xffb00020), fontSize: 12),
                       ),
                     ),
                   ],
@@ -445,17 +461,30 @@ class _ProductFormState extends State<ProductForm> {
       spacing: 12,
       runSpacing: 14,
       children: [
-        _field(name, 'Nombre del producto', width: isWide ? 400 : 568),
-        _field(sku, 'SKU / Clave', width: isWide ? 194 : 278),
-        _categoryField(width: isWide ? 194 : 278),
-        _field(price, 'Precio (\$)', numeric: true, width: isWide ? 194 : 278),
-        _field(stock, 'Existencia (Stock)', integer: true, width: isWide ? 194 : 278),
-        _field(minimum, 'Stock mínimo de alerta', integer: true, width: isWide ? 194 : 278),
+        _field(name, 'Nombre del producto',
+            width: isWide ? 400 : 568, hint: 'Ej. Sauvage - Eau de Parfum'),
+        _field(sku, 'SKU / Clave',
+            width: halfWidth, helper: 'Código interno para buscarlo rápido'),
+        _categoryField(width: halfWidth),
+        _field(price, 'Precio de venta (\$)',
+            numeric: true, width: halfWidth, hint: 'Ej. 450.00'),
+        _field(stock, 'Existencia actual',
+            integer: true,
+            width: halfWidth,
+            helper: 'Unidades que tienes ahora'),
+        _field(minimum, 'Avisarme cuando queden',
+            integer: true,
+            width: halfWidth,
+            helper: 'Aparecerá en "Stock bajo" al llegar aquí'),
       ],
     );
 
     return AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      insetPadding: isPhone
+          ? const EdgeInsets.symmetric(horizontal: 12, vertical: 24)
+          : const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+      contentPadding: isPhone ? const EdgeInsets.fromLTRB(16, 16, 16, 8) : null,
       title: Row(
         children: [
           Container(
@@ -464,16 +493,24 @@ class _ProductFormState extends State<ProductForm> {
               color: magenta.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Icon(Icons.inventory_2_rounded, color: magenta, size: 20),
+            child:
+                const Icon(Icons.inventory_2_rounded, color: magenta, size: 20),
           ),
           const SizedBox(width: 12),
-          Text(
-            widget.product == null ? 'NUEVO PRODUCTO' : 'EDITAR PRODUCTO',
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1.2,
+          Expanded(
+            child: Text(
+              widget.product == null ? 'NUEVO PRODUCTO' : 'EDITAR PRODUCTO',
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.2,
+              ),
             ),
+          ),
+          IconButton(
+            tooltip: 'Cerrar sin guardar',
+            onPressed: () => Navigator.pop(context),
+            icon: const Icon(Icons.close_rounded),
           ),
         ],
       ),
@@ -526,12 +563,14 @@ class _ProductFormState extends State<ProductForm> {
             icon: saving
                 ? const SizedBox.square(
                     dimension: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white),
                   )
                 : const Icon(Icons.check_circle_rounded, size: 18),
             label: Text(
               saving ? 'GUARDANDO…' : 'GUARDAR PRODUCTO',
-              style: const TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1.1),
+              style: const TextStyle(
+                  fontWeight: FontWeight.w800, letterSpacing: 1.1),
             ),
             style: FilledButton.styleFrom(
               backgroundColor: Colors.transparent,
@@ -565,7 +604,8 @@ class _ProductFormState extends State<ProductForm> {
           labelStyle: const TextStyle(color: Color(0xff7a5c6b), fontSize: 13),
           filled: true,
           fillColor: const Color(0xfffffbfd),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(30),
             borderSide: const BorderSide(color: Color(0xfff3e4ed), width: 0.5),
@@ -676,6 +716,8 @@ class _ProductFormState extends State<ProductForm> {
     bool numeric = false,
     bool integer = false,
     bool required = true,
+    String? hint,
+    String? helper,
   }) {
     return SizedBox(
       width: width,
@@ -684,10 +726,14 @@ class _ProductFormState extends State<ProductForm> {
         style: const TextStyle(color: Color(0xff3a2633), fontSize: 14),
         decoration: InputDecoration(
           labelText: label,
+          hintText: hint,
+          helperText: helper,
+          helperMaxLines: 2,
           labelStyle: const TextStyle(color: Color(0xff7a5c6b), fontSize: 13),
           filled: true,
           fillColor: const Color(0xfffffbfd),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide: const BorderSide(color: Color(0xfff3e4ed), width: 1.5),
@@ -719,10 +765,10 @@ class _ProductFormState extends State<ProductForm> {
             return 'Campo obligatorio';
           }
           if (!required && (value == null || value.trim().isEmpty)) return null;
-          if (numeric && (double.tryParse(value!) ?? -1) < 0) {
+          if (numeric && (_parseDecimal(value!) ?? -1) < 0) {
             return 'Escribe un número válido';
           }
-          if (integer && (int.tryParse(value!) ?? -1) < 0) {
+          if (integer && (int.tryParse(value!.trim()) ?? -1) < 0) {
             return 'Escribe un número entero válido';
           }
           return null;
@@ -730,6 +776,10 @@ class _ProductFormState extends State<ProductForm> {
       ),
     );
   }
+
+  /// Acepta tanto "450.50" como "450,50".
+  double? _parseDecimal(String value) =>
+      double.tryParse(value.trim().replaceAll(',', '.'));
 
   Future<void> _save() async {
     if (!formKey.currentState!.validate()) return;
@@ -746,15 +796,19 @@ class _ProductFormState extends State<ProductForm> {
         name: name.text.trim(),
         sku: sku.text.trim(),
         category: category!.trim(),
-        price: double.parse(price.text),
-        stock: int.parse(stock.text),
-        minimumStock: int.parse(minimum.text),
-        photoBase64: mediaBytes == null ? (current?.photoBase64 ?? '') : base64Encode(mediaBytes!),
-        imageUrl: existingUrl.isNotEmpty ? existingUrl : (current?.imageUrl ?? ''),
+        price: _parseDecimal(price.text)!,
+        stock: int.parse(stock.text.trim()),
+        minimumStock: int.parse(minimum.text.trim()),
+        photoBase64: mediaBytes == null
+            ? (current?.photoBase64 ?? '')
+            : base64Encode(mediaBytes!),
+        imageUrl:
+            existingUrl.isNotEmpty ? existingUrl : (current?.imageUrl ?? ''),
         mediaType: isVideo ? 'video' : 'image',
         modelUrl: current?.modelUrl ?? '',
         imageUrls: current?.imageUrls ?? [],
-        pendingImagesBase64: mediaBytes != null ? [base64Encode(mediaBytes!)] : [],
+        pendingImagesBase64:
+            mediaBytes != null ? [base64Encode(mediaBytes!)] : [],
       ),
     );
 
@@ -762,7 +816,8 @@ class _ProductFormState extends State<ProductForm> {
     setState(() => saving = false);
     if (failure != null) {
       setState(() => mediaError = failure);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(failure)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(failure)));
       return;
     }
     Navigator.pop(context);

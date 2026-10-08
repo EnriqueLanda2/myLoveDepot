@@ -1,192 +1,262 @@
-# My Love Depot
+# My Love Depot 💗
 
-Aplicación de inventario local pensada para tablets, creada con Flutter y lista
-para compilarse como PWA o APK Android.
+Inventario y finanzas personales para un pequeño negocio, hecho en **Flutter**
+(PWA para teléfono, tablet o computadora) con una **API en Node.js + MySQL**.
 
-## Funciones del MVP
+Registra productos con foto, controla entradas y ventas, recibe alertas de stock
+bajo, revisa tus ganancias del día y del mes, y lleva un control de tus gastos.
 
-- Dashboard con existencias, valor total y alertas de stock bajo.
-- Alta y edición de productos (nombre, SKU, categoría, precio y existencia).
-- Catálogo de categorías registrables, con desplegable en el formulario.
-- Entradas y salidas de inventario con validación de existencias.
-- Buscador y filtros por estado.
-- Historial de movimientos.
-- Persistencia local en el dispositivo y datos de demostración iniciales.
-- Escaneo de códigos de barras y QR con acceso directo a registrar stock.
-- Captura de hasta cinco vistas verificadas del producto.
-- Modelo 3D generado en el servidor a partir de esas fotos, sin pedir URLs.
-- Inicio de sesión JWT para los roles `wifey` y `husband`.
+---
 
-## Categorías
+## Índice
 
-Las categorías viven en su propia tabla y se administran desde la pestaña
-**Categorías**: se crean, se renombran (el cambio se propaga a los productos que
-las usan) y se eliminan cuando ningún producto las ocupa. El formulario de
-producto ya no pide escribir la categoría a mano: la elige de un desplegable, y
-desde ahí mismo se puede registrar una nueva sin cerrar el formulario.
+1. [Qué puedes hacer](#qué-puedes-hacer)
+2. [Guía rápida de uso](#guía-rápida-de-uso)
+3. [Qué necesitas instalar](#qué-necesitas-instalar)
+4. [Ponerlo en marcha en tu computadora](#ponerlo-en-marcha-en-tu-computadora)
+5. [Variables de entorno](#variables-de-entorno)
+6. [Comandos útiles](#comandos-útiles)
+7. [Publicar en internet](#publicar-en-internet)
+8. [Instalar la app en el teléfono](#instalar-la-app-en-el-teléfono)
+9. [Generador de modelos 3D (opcional)](#generador-de-modelos-3d-opcional)
+10. [Solución de problemas](#solución-de-problemas)
+11. [Estructura del proyecto](#estructura-del-proyecto)
 
-## Ejecutar
+---
 
-1. Instala [Flutter](https://docs.flutter.dev/get-started/install/windows/mobile).
-2. Verifica la instalación con `flutter doctor`.
-3. Desde esta carpeta ejecuta:
+## Qué puedes hacer
 
-```powershell
-flutter pub get
-flutter run -d chrome
+| Sección | Para qué sirve |
+| --- | --- |
+| **Resumen** | Unidades en stock, valor del almacén, ganancias de hoy y del mes, acciones rápidas y lista de productos con stock bajo (tócalos para reabastecer). |
+| **Productos** | Catálogo con foto o video, búsqueda, filtro por categoría y por stock bajo. Botones `+1 ENTRADA`, `−1 VENTA` y **Ajustar** para mover varias unidades. |
+| **Categorías** | Crear, renombrar (se actualiza en todos los productos) y eliminar categorías sin productos. |
+| **Movimientos** | Historial de entradas y salidas, filtrable por tipo, categoría, mes y año. |
+| **Finanzas** | Fondo inicial, registro de gastos personales, saldo disponible y en qué se va el dinero. |
+| **Ayuda** | El botón **?** de la barra superior explica cada sección dentro de la app. |
+
+Todo se guarda primero en el dispositivo (carga instantánea y funciona sin
+conexión) y se sincroniza con la API cuando hay sesión e internet.
+
+## Guía rápida de uso
+
+1. **Inicia sesión** con el usuario `wifey` o `husband` y la contraseña que se
+   configuró en el servidor.
+2. **Crea tus categorías** (por ejemplo *Hombre*, *Mujer*, *Unisex*) en la
+   pestaña **Categorías**, o directamente desde el formulario de producto con
+   *Registrar categoría*.
+3. **Agrega productos** con el botón **Nuevo**: nombre, precio, existencia y el
+   número con el que quieres que te avise (*Avisarme cuando queden*).
+4. **Cada venta** se registra con `−1 VENTA` en la tarjeta del producto; cada
+   compra o reposición con `+1 ENTRADA`, o con **Ajustar** si son varias unidades.
+5. **Revisa el Resumen** cada día: verás tus ganancias y qué productos hay que
+   reabastecer.
+6. **En Finanzas**, define tu fondo inicial y anota tus gastos para conocer tu
+   saldo disponible.
+
+---
+
+## Qué necesitas instalar
+
+| Herramienta | Versión | Para qué | Obligatorio |
+| --- | --- | --- | --- |
+| [Flutter SDK](https://docs.flutter.dev/get-started/install) | estable (Dart ≥ 3.4) | Compilar y ejecutar la app | Sí |
+| Google Chrome | reciente | Ejecutar la app en modo desarrollo | Sí |
+| [Node.js](https://nodejs.org/) | 22 o superior | Ejecutar la API | Sí |
+| MySQL | 8.x | Base de datos (local, [Aiven](https://aiven.io/) u otro) | Sí |
+| Cuenta de [Cloudinary](https://cloudinary.com/) | gratuita | Guardar fotos y videos de productos | Sí¹ |
+| [Docker](https://www.docker.com/) | reciente | Levantar MySQL local con un comando | No |
+| Python | 3.10 o superior | Generador de modelos 3D | No |
+| Android Studio / Xcode | reciente | Compilar APK Android / app iOS nativa | No |
+
+¹ La API no arranca sin las tres variables de Cloudinary. Para probar en local
+puedes usar valores de relleno; solo fallará la subida de fotos.
+
+> **macOS:** si instalaste Flutter en `~/development/flutter`, agrégalo al PATH
+> añadiendo esta línea a `~/.zshrc` y abriendo una terminal nueva:
+>
+> ```bash
+> export PATH="$HOME/development/flutter/bin:$PATH"
+> ```
+>
+> Comprueba la instalación con `flutter doctor`.
+
+---
+
+## Ponerlo en marcha en tu computadora
+
+La app **necesita la API** para iniciar sesión, así que se levantan las dos
+partes: base de datos + API, y después la app.
+
+### 1. Base de datos
+
+Con Docker (lo más sencillo):
+
+```bash
+docker compose up -d
 ```
 
-Para generar la PWA de producción:
+Esto crea una base `my_love_depot` con usuario `depot` / contraseña `depot` en
+`localhost:3306`. Si no usas Docker, crea esa base en cualquier MySQL 8 o usa
+la URI de Aiven.
 
-```powershell
-flutter build web --release
-```
+### 2. API (`backend/`)
 
-Los archivos resultantes estarán en `build/web`. Deben publicarse mediante
-HTTPS para que la instalación y el service worker funcionen correctamente.
-
-Para generar un APK instalable en una tablet Samsung, primero crea los archivos
-nativos que no se guardan en este repositorio y luego compila:
-
-```powershell
-flutter create --platforms=android .
-flutter build apk --release
-```
-
-## Instalación en una tablet Samsung
-
-Abre la URL publicada con Chrome, toca el menú de tres puntos y elige
-**Instalar aplicación** o **Agregar a pantalla principal**. La PWA se abrirá en
-modo independiente, como una app.
-
-Los datos se conservan localmente para una carga rápida y se sincronizan con la
-API cuando existe una sesión válida y conexión disponible.
-
-## Cámara, códigos y vistas del producto
-
-Al escanear un código existente se abre el formulario de entrada de stock con
-una unidad sugerida; el usuario confirma la cantidad. Si el código es nuevo, se
-abre el formulario con el código precargado. Chrome debe
-tener permiso para usar la cámara y la PWA debe servirse mediante HTTPS.
-
-El formulario exige una vista frontal y acepta hasta cuatro vistas adicionales
-(Frente, Atrás, Izquierda, Derecha y Arriba). Antes de subirla, la API comprueba
-resolución, enfoque, iluminación, contraste con el fondo, encuadre y centrado.
-Si la captura no sirve para obtener una silueta limpia, la app explica qué debe
-corregirse y obliga a repetir el escaneo.
-
-## Modelo 3D a partir de las fotos
-
-El formulario ya no pide una URL `.glb` ni `.gltf`. Cuando se guardan fotos
-nuevas, la API reconstruye el modelo con el generador de `backend/tools/model3d`,
-escrito en Python (numpy y Pillow). El detalle del producto lo muestra en un
-visor que se puede girar, con un botón para regenerarlo.
-
-El método es **casco visual** (*shape from silhouette*):
-
-1. Cada foto se segmenta para separar el producto del fondo y quedarse con su
-   silueta.
-2. Las razones de aspecto de las siluetas resuelven las proporciones X:Y:Z del
-   producto por mínimos cuadrados.
-3. Cada silueta se extruye a lo largo del eje desde el que se fotografió y el
-   volumen es la **intersección** de todas esas extrusiones.
-4. La superficie se extrae de los vóxeles, se relaja con un suavizado de Taubin
-   y se texturiza proyectando sobre cada cara la foto que la mira de frente.
-5. El resultado se escribe como `.glb` con la textura embebida y se sube a
-   Cloudinary.
-
-Conviene saber qué es y qué no es. Con cinco vistas ortogonales el contorno sale
-exacto y **no se inventa nada**: se obtiene el volumen más pequeño compatible con
-las fotos. Lo que este método no puede recuperar son las concavidades, porque
-ninguna silueta las delata; un tazón sale como un cilindro macizo. No es
-fotogrametría y no pretende serlo.
-
-Con una sola foto frontal se genera un avatar `.glb` completamente giratorio,
-pero la profundidad es una aproximación proporcional porque la cámara no ve la
-parte trasera ni los costados. Cada vista adicional reemplaza parte de esa
-estimación con geometría observada y mejora la fidelidad.
-
-Las fotos salen mucho mejor con **fondo liso y contrastado**: de ahí depende la
-segmentación. Si ninguna foto se puede separar del fondo, la API responde con un
-mensaje que lo explica en lugar de generar un modelo inservible.
-
-El generador también se puede usar suelto, sin la API:
-
-```powershell
-cd backend/tools/model3d
-pip install -r requirements.txt
-python build_model.py --input <carpeta-con-view-0..4> --output producto.glb
-```
-
-Acepta `--resolution` (lado de la rejilla de vóxeles, 56 por omisión) y
-`--smooth` (pasadas de suavizado, 4 por omisión).
-
-## Backend, MySQL y Cloudinary
-
-La API está en `backend/`. Guarda productos y movimientos en MySQL y sube las
-fotografías a Cloudinary. Las credenciales nunca deben agregarse a Flutter ni
-confirmarse en Git.
-
-```powershell
+```bash
 cd backend
-Copy-Item .env.example .env
+cp .env.example .env        # En Windows: Copy-Item .env.example .env
 npm install
-pip install -r tools/model3d/requirements.txt
+```
+
+Edita `backend/.env` (ver [Variables de entorno](#variables-de-entorno)). Como
+mínimo:
+
+```dotenv
+DATABASE_URL=mysql://depot:depot@localhost:3306/my_love_depot
+JWT_SECRET=<cadena aleatoria larga>
+WIFEY_PASSWORD=<contraseña de 12+ caracteres>
+HUSBAND_PASSWORD=<otra contraseña de 12+ caracteres>
+CLOUDINARY_CLOUD_NAME=...
+CLOUDINARY_API_KEY=...
+CLOUDINARY_API_SECRET=...
+ALLOWED_ORIGINS=http://localhost:8080
+```
+
+Para generar un `JWT_SECRET` seguro:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+```
+
+Crea las tablas y arranca la API:
+
+```bash
 npm run db:init
 npm run dev
 ```
 
-En Windows el ejecutable de Python suele llamarse `python` y no `python3`; en ese
-caso agrega `MODEL3D_PYTHON=python` a `backend/.env`. La imagen Docker instala su
-propio intérprete y ya trae la variable configurada.
+Comprueba que responde en <http://localhost:3000/health> (`{"status":"ok"}`).
 
-Completa primero `backend/.env` con la conexión MySQL, el certificado CA de
-Aiven codificado en Base64, las tres credenciales de Cloudinary y una clave
-propia larga para `JWT_SECRET`, además de las contraseñas de `wifey` y `husband`.
-El despliegue ejecuta automáticamente la
-creación de tablas antes de iniciar la API.
+### 3. App Flutter (raíz del repositorio)
 
-Para conectar Flutter durante desarrollo:
-
-```powershell
-flutter run -d chrome `
+```bash
+flutter pub get
+flutter run -d chrome --web-port 8080 \
   --dart-define=API_BASE_URL=http://localhost:3000
 ```
 
-En producción usa la URL HTTPS de la API y configura `ALLOWED_ORIGINS` con el
-dominio exacto de la PWA. El JWT se obtiene al iniciar sesión y no se compila
-ninguna contraseña dentro del frontend.
+En PowerShell cambia `\` por `` ` `` al final de cada línea.
 
-### Desplegar la API en Render
+`--web-port 8080` hace que el origen coincida con `ALLOWED_ORIGINS`; si usas
+otro puerto, agrégalo a esa variable.
 
-El archivo `render.yaml` de la raíz define un Web Service Docker gratuito con
-directorio `backend/` y health check en `/health`.
+La primera vez la app muestra **productos de demostración** para que veas cómo
+se ve; puedes editarlos o eliminarlos.
+
+---
+
+## Variables de entorno
+
+Todas viven en `backend/.env` (nunca lo subas a Git; ya está en `.gitignore`).
+
+| Variable | Obligatoria | Descripción |
+| --- | --- | --- |
+| `PORT` | No | Puerto de la API. Por omisión `3000`. |
+| `DATABASE_URL` | Sí | URI MySQL: `mysql://usuario:contraseña@host:puerto/base`. |
+| `DATABASE_CA_CERT_BASE64` | No | Certificado CA en Base64 (Aiven). Vacío en `localhost`. |
+| `CLOUDINARY_CLOUD_NAME` | Sí | Nombre de tu cuenta de Cloudinary. |
+| `CLOUDINARY_API_KEY` | Sí | API key de Cloudinary. |
+| `CLOUDINARY_API_SECRET` | Sí | API secret de Cloudinary. |
+| `JWT_SECRET` | Sí | Clave para firmar las sesiones (64+ caracteres aleatorios). |
+| `WIFEY_USERNAME` / `HUSBAND_USERNAME` | No | Usuarios. Por omisión `wifey` y `husband`. |
+| `WIFEY_PASSWORD` / `HUSBAND_PASSWORD` | Sí | Contraseñas de cada usuario. |
+| `ALLOWED_ORIGINS` | Sí | URLs que pueden usar la API, separadas por comas y sin `/` final. |
+| `MODEL3D_PYTHON` | No | Intérprete de Python para el generador 3D (`python3`, o `python` en Windows). |
+| `MODEL3D_RESOLUTION` | No | Resolución de la rejilla de vóxeles (48 por omisión en `.env.example`). |
+| `MODEL3D_TIMEOUT_MS` | No | Tiempo máximo de generación del modelo. |
+
+La app Flutter recibe solo una variable, en tiempo de compilación:
+
+| Variable | Ejemplo |
+| --- | --- |
+| `API_BASE_URL` | `--dart-define=API_BASE_URL=https://mi-api.onrender.com` |
+
+Ninguna contraseña se compila dentro de la app.
+
+---
+
+## Comandos útiles
+
+| Dónde | Comando | Qué hace |
+| --- | --- | --- |
+| raíz | `flutter run -d chrome --web-port 8080 --dart-define=API_BASE_URL=http://localhost:3000` | App en modo desarrollo |
+| raíz | `flutter analyze` | Revisa el código Dart |
+| raíz | `flutter test` | Ejecuta las pruebas (lógica + pantallas en tamaño teléfono y tablet) |
+| raíz | `flutter build web --release --dart-define=API_BASE_URL=<url>` | Genera la PWA en `build/web` |
+| raíz | `flutter build apk --release --dart-define=API_BASE_URL=<url>` | Genera el APK de Android |
+| raíz | `docker compose up -d` / `docker compose down` | Enciende / apaga MySQL local |
+| `backend/` | `npm run dev` | API con recarga automática |
+| `backend/` | `npm run db:init` | Crea o actualiza las tablas |
+| `backend/` | `npm run db:clear` | **Borra** los datos de la base |
+| `backend/` | `npm run typecheck` | Revisa los tipos de TypeScript |
+| `backend/` | `npm run build && npm start` | API compilada (como en producción) |
+
+---
+
+## Publicar en internet
+
+### API en Render
+
+El archivo `render.yaml` define un Web Service Docker gratuito con raíz en
+`backend/` y health check en `/health`.
 
 1. Sube el repositorio a GitHub.
-2. En Render selecciona **New → Blueprint** y conecta el repositorio.
-3. Render detectará `render.yaml` y solicitará las variables marcadas como
-   secretas.
-4. Usa en `DATABASE_URL` la URI MySQL entregada por Aiven.
-5. Agrega las tres credenciales de Cloudinary.
-6. Configura `JWT_SECRET`, `WIFEY_PASSWORD` y `HUSBAND_PASSWORD` como secretos.
-7. En `ALLOWED_ORIGINS` coloca la URL final de la PWA, sin `/` al final.
+2. En Render elige **New → Blueprint** y conecta el repositorio.
+3. Render leerá `render.yaml` y pedirá las variables secretas: `DATABASE_URL`
+   (la URI de Aiven), `DATABASE_CA_CERT_BASE64`, las tres de Cloudinary,
+   `WIFEY_PASSWORD`, `HUSBAND_PASSWORD` y `ALLOWED_ORIGINS` (la URL final de la
+   PWA). `JWT_SECRET` se genera solo.
 
-Al iniciar, el contenedor aplica automáticamente `schema.sql`. No se guardan
-archivos en el disco efímero de Render: las imágenes quedan en Cloudinary y los
-datos en Aiven.
+Al arrancar, el contenedor aplica `schema.sql` automáticamente. Las imágenes
+van a Cloudinary y los datos a MySQL; nada depende del disco de Render.
 
-El servicio gratuito puede entrar en reposo después de un periodo sin tráfico.
-Flutter muestra primero la copia local mientras Render despierta y después
-sincroniza el inventario.
+El plan gratuito se duerme tras un rato sin tráfico. La app muestra primero los
+datos guardados en el dispositivo mientras la API despierta, y luego sincroniza.
 
-## Usar en iPhone
+### App (PWA)
 
-Para la PWA, publica `build/web` en un sitio HTTPS. En el iPhone abre la URL con
-Safari, toca **Compartir** y después **Agregar a inicio**. Safari solicitará el
-permiso de cámara la primera vez que se use el escáner.
+```bash
+flutter build web --release --dart-define=API_BASE_URL=https://<tu-api>.onrender.com
+```
 
-Una aplicación iOS nativa solamente puede compilarse y firmarse en macOS con
-Xcode. En una Mac ejecuta:
+Publica la carpeta `build/web` en cualquier hosting **con HTTPS** (Render Static
+Site, Netlify, Firebase Hosting, GitHub Pages…). HTTPS es necesario para que la
+app se pueda instalar y para usar la cámara. Después agrega esa URL exacta a
+`ALLOWED_ORIGINS` en la API.
+
+---
+
+## Instalar la app en el teléfono
+
+Desde la app también puedes tocar **DESCARGAR APP** (o el ícono 📲 en el
+teléfono) para ver estas instrucciones.
+
+- **iPhone / iPad (Safari):** abre la URL de la PWA → botón **Compartir** →
+  **Agregar a inicio** → **Agregar**.
+- **Android (Chrome):** abre la URL → menú **⋮** → **Instalar aplicación** o
+  **Agregar a la pantalla principal**.
+
+### APK Android
+
+```bash
+flutter build apk --release --dart-define=API_BASE_URL=https://<tu-api>.onrender.com
+```
+
+El archivo queda en `build/app/outputs/flutter-apk/app-release.apk`.
+
+### iOS nativo
+
+Solo se puede compilar en una Mac con Xcode:
 
 ```bash
 flutter create --platforms=ios .
@@ -194,6 +264,68 @@ flutter pub get
 open ios/Runner.xcworkspace
 ```
 
-Después selecciona el equipo de Apple Developer en Xcode, conecta el iPhone y
-ejecuta `flutter run`. Para distribuir con TestFlight o App Store se necesita
-una cuenta de Apple Developer.
+Selecciona tu equipo de Apple Developer, conecta el iPhone y ejecuta
+`flutter run`. Para TestFlight o App Store se necesita cuenta de Apple Developer.
+
+---
+
+## Generador de modelos 3D (opcional)
+
+La API incluye un endpoint (`POST /api/products/:id/model`) que reconstruye un
+modelo `.glb` a partir de las fotos del producto usando
+`backend/tools/model3d` (Python, numpy y Pillow). **La app actual no muestra el
+visor 3D**; el generador queda disponible para uso desde la API o por separado.
+
+```bash
+cd backend/tools/model3d
+pip install -r requirements.txt
+python build_model.py --input <carpeta-con-view-0..4> --output producto.glb
+```
+
+Opciones: `--resolution` (lado de la rejilla de vóxeles, 56 por omisión) y
+`--smooth` (pasadas de suavizado, 4 por omisión).
+
+Usa el método de **casco visual**: segmenta la silueta de cada foto, la extruye
+desde su ángulo y se queda con la intersección. Con varias vistas ortogonales
+el contorno sale exacto, pero no recupera concavidades (un tazón sale macizo).
+Las fotos con **fondo liso y contrastado** dan los mejores resultados.
+
+---
+
+## Solución de problemas
+
+| Síntoma | Causa probable y solución |
+| --- | --- |
+| *"La app no tiene servidor configurado"* al iniciar sesión | Falta `--dart-define=API_BASE_URL=...` al ejecutar o compilar la app. |
+| *"No hay conexión con el servidor"* | La API no está corriendo, la URL es incorrecta, o el origen de la app no está en `ALLOWED_ORIGINS`. Revisa la consola del navegador (error CORS). |
+| *"Usuario o contraseña incorrectos"* | Verifica `WIFEY_PASSWORD` / `HUSBAND_PASSWORD` en `backend/.env` y reinicia la API. Tras 8 intentos fallidos se bloquea 15 minutos. |
+| La API se cierra con *"Falta la variable …"* | Completa esa variable en `backend/.env`. |
+| Error SSL al conectar a MySQL | En Aiven, agrega `DATABASE_CA_CERT_BASE64`. En local usa `localhost` en `DATABASE_URL`. |
+| La primera carga en producción tarda | Render gratuito estaba dormido; espera unos segundos. |
+| No aparece la opción de instalar la app | La PWA debe servirse por HTTPS y abrirse en Safari (iOS) o Chrome (Android). |
+| `flutter: command not found` | Agrega Flutter al PATH (ver [Qué necesitas instalar](#qué-necesitas-instalar)). |
+
+---
+
+## Estructura del proyecto
+
+```text
+lib/                      App Flutter
+  main.dart               Punto de entrada
+  src/app.dart            Tema visual y navegación login ↔ inicio
+  src/inventory_store.dart Estado, guardado local y sincronización
+  src/api_client.dart     Cliente HTTP de la API
+  src/models.dart         Producto, categoría y movimiento
+  src/screens/            Pantallas (inicio, login, producto, stock, categorías)
+  src/widgets/            Mascota, banner e instalación PWA
+test/                     Pruebas de lógica y de pantallas
+web/                      index.html, manifest e íconos de la PWA
+backend/                  API Express + TypeScript
+  src/server.ts           Rutas de la API
+  src/migrate.ts          Aplica schema.sql
+  schema.sql              Tablas MySQL
+  tools/model3d/          Generador de modelos 3D (Python)
+docker-compose.yml        MySQL local para desarrollo
+render.yaml               Despliegue de la API en Render
+viewer3d/                 Visor 3D independiente (Vite + three.js)
+```

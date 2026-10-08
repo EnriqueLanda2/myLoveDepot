@@ -182,6 +182,12 @@ class InventoryStore extends ChangeNotifier {
 
   Future<bool> login(String usernameValue, String password) async {
     authError = null;
+    if (api.baseUrl.trim().isEmpty) {
+      authError = 'La app no tiene servidor configurado. '
+          'Compílala con --dart-define=API_BASE_URL=<url de la API>.';
+      notifyListeners();
+      return false;
+    }
     try {
       final data = await api.login(usernameValue.trim(), password);
       role = data['role'] as String;

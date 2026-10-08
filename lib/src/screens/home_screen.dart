@@ -46,6 +46,23 @@ class _HomeScreenState extends State<HomeScreen> {
   String selectedCategory = 'Todas las categorías';
   int currentPage = 1;
   static const int pageSize = 30;
+  final _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _clearProductFilters() {
+    _searchController.clear();
+    setState(() {
+      query = '';
+      lowStockOnly = false;
+      selectedCategory = 'Todas las categorías';
+      currentPage = 1;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -175,34 +192,40 @@ class _HomeScreenState extends State<HomeScreen> {
             child: const LoveMascot(size: 28),
           ),
           const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ShaderMask(
-                shaderCallback: (bounds) => const LinearGradient(
-                  colors: [_C.magenta, _C.magentaDeep],
-                ).createShader(bounds),
-                child: const Text(
-                  'MY LOVE DEPOT',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 2,
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ShaderMask(
+                    shaderCallback: (bounds) => const LinearGradient(
+                      colors: [_C.magenta, _C.magentaDeep],
+                    ).createShader(bounds),
+                    child: const Text(
+                      'MY LOVE DEPOT',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 2,
+                      ),
+                    ),
                   ),
-                ),
+                  Text(
+                    'GESTIÓN DE ALMACÉN',
+                    style: TextStyle(
+                      color: _C.textSecondary.withValues(alpha: 0.7),
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 2.5,
+                    ),
+                  ),
+                ],
               ),
-              Text(
-                'GESTIÓN DE ALMACÉN',
-                style: TextStyle(
-                  color: _C.textSecondary.withValues(alpha: 0.7),
-                  fontSize: 9,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 2.5,
-                ),
-              ),
-            ],
+            ),
           ),
         ],
       ),
@@ -268,6 +291,12 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: () => _showInstallAppDialog(context),
             icon: const Icon(Icons.install_mobile_rounded, color: _C.magenta),
           ),
+        // Help
+        IconButton(
+          tooltip: 'Ayuda: cómo usar la app',
+          onPressed: () => _showHelpDialog(context),
+          icon: const Icon(Icons.help_outline_rounded, color: _C.magenta),
+        ),
         // Logout
         Container(
           margin: const EdgeInsets.symmetric(horizontal: 4),
@@ -277,7 +306,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           child: IconButton(
             tooltip: 'Cerrar sesión',
-            onPressed: widget.store.logout,
+            onPressed: () => _confirmLogout(context),
             icon: Icon(Icons.logout_rounded,
                 color: _C.textSecondary.withValues(alpha: 0.7), size: 20),
           ),
@@ -374,9 +403,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: LoveMascot(size: 32),
               ),
         selectedIndex: selectedIndex,
-        onDestinationSelected: (value) =>
-            setState(() => selectedIndex = value),
-        labelType: NavigationRailLabelType.all,
+        onDestinationSelected: (value) => setState(() => selectedIndex = value),
+        // Flutter no permite etiquetas fijas cuando el riel está extendido.
+        labelType: isExtended ? null : NavigationRailLabelType.all,
         destinations: destinations,
         backgroundColor: Colors.transparent,
       ),
@@ -397,8 +426,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       child: NavigationBar(
         selectedIndex: selectedIndex,
-        onDestinationSelected: (value) =>
-            setState(() => selectedIndex = value),
+        onDestinationSelected: (value) => setState(() => selectedIndex = value),
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.dashboard_outlined),
@@ -417,6 +445,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           NavigationDestination(
             icon: Icon(Icons.swap_horiz_rounded),
+            selectedIcon: Icon(Icons.swap_horiz_rounded),
             label: 'Movimientos',
           ),
           NavigationDestination(
@@ -432,12 +461,17 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _page() => switch (selectedIndex) {
         0 => _Dashboard(
             store: widget.store,
-            onShowProducts: () {
+            onShowLowStock: () {
               setState(() {
                 lowStockOnly = true;
+                currentPage = 1;
                 selectedIndex = 1;
               });
             },
+            onShowProducts: () => setState(() => selectedIndex = 1),
+            onShowMovements: () => setState(() => selectedIndex = 3),
+            onNewProduct: () => _openProductForm(context),
+            onNewExpense: () => showExpenseDialog(context, widget.store),
           ),
         1 => _productsPage(),
         2 => CategoriesPage(store: widget.store),
@@ -457,8 +491,8 @@ class _HomeScreenState extends State<HomeScreen> {
           product.name.toLowerCase().contains(normalized) ||
           product.sku.toLowerCase().contains(normalized) ||
           product.category.toLowerCase().contains(normalized);
-      final matchesCategory = !isCategoryFilter ||
-          product.category.toLowerCase() == catNormalized;
+      final matchesCategory =
+          !isCategoryFilter || product.category.toLowerCase() == catNormalized;
       return matchesQuery &&
           matchesCategory &&
           (!lowStockOnly || product.hasLowStock);
@@ -492,225 +526,260 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Padding(
               padding: EdgeInsets.all(isMobile ? 12 : 24),
               child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // ── Page header ──────────────────────────────────────────────
-              _PageHeader(
-                icon: Icons.storefront_rounded,
-                title: 'CATÁLOGO DE PRODUCTOS',
-                subtitle:
-                    '${widget.store.products.length} productos registrados  ·  Mostrando ${pagedProducts.length} de $totalCount',
-              ),
-              const SizedBox(height: 16),
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // ── Page header ──────────────────────────────────────────────
+                  _PageHeader(
+                    icon: Icons.storefront_rounded,
+                    title: 'CATÁLOGO DE PRODUCTOS',
+                    subtitle:
+                        '${widget.store.products.length} productos registrados  ·  Mostrando ${pagedProducts.length} de $totalCount',
+                  ),
+                  const SizedBox(height: 16),
 
-              // ── Filters row ──────────────────────────────────────────────
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: _C.bgCard,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: _C.strokeLight, width: 1),
-                  boxShadow: [
-                    BoxShadow(
-                      color: _C.magenta.withValues(alpha: 0.03),
-                      blurRadius: 8,
+                  // ── Filters row ──────────────────────────────────────────────
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: _C.bgCard,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: _C.strokeLight, width: 1),
+                      boxShadow: [
+                        BoxShadow(
+                          color: _C.magenta.withValues(alpha: 0.03),
+                          blurRadius: 8,
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: _SearchField(
+                    child: Builder(builder: (context) {
+                      final search = _SearchField(
+                        controller: _searchController,
                         onChanged: (value) => setState(() {
                           query = value;
                           currentPage = 1;
                         }),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    _CategorySelect(
-                      selectedCategory: selectedCategory,
-                      categories: widget.store.categoryNames,
-                      onChanged: (value) => setState(() {
-                        selectedCategory = value;
-                        currentPage = 1;
-                      }),
-                    ),
-                    const SizedBox(width: 10),
-                    _FilterChip(
-                      label: 'STOCK BAJO',
-                      selected: lowStockOnly,
-                      onSelected: (value) => setState(() {
-                        lowStockOnly = value;
-                        currentPage = 1;
-                      }),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              // ── Products Grid ────────────────────────────────────────────
-              Expanded(
-                child: pagedProducts.isEmpty
-                    ? const _EmptyState(
-                        icon: Icons.search_off_rounded,
-                        message:
-                            'No se encontraron productos en el catálogo.',
-                      )
-                    : Column(
-                        children: [
-                          Expanded(
-                            child: GridView.builder(
-                              padding: const EdgeInsets.only(bottom: 12),
-                              gridDelegate:
-                                  SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: crossAxisCount,
-                                crossAxisSpacing: isMobile ? 10 : 16,
-                                mainAxisSpacing: isMobile ? 12 : 18,
-                                childAspectRatio: isMobile ? 0.56 : 0.60,
-                              ),
-                              itemCount: pagedProducts.length,
-                              itemBuilder: (context, index) {
-                                final product = pagedProducts[index];
-                                return _CatalogProductCard(
-                                  product: product,
-                                  onOutgoing: () async {
-                                    final err = await widget.store
-                                        .quickSale(product);
-                                    if (!context.mounted) return;
-                                    if (err != null) {
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(
-                                        SnackBar(
-                                          content: Text(err),
-                                          backgroundColor: _C.red,
-                                        ),
-                                      );
-                                    } else {
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(
-                                        SnackBar(
-                                          content: Text(
-                                            '¡Salida registrada! 1x "${product.name}" agregada a ganancias.',
-                                          ),
-                                          backgroundColor: _C.green,
-                                          duration:
-                                              const Duration(seconds: 2),
-                                        ),
-                                      );
-                                    }
-                                  },
-                                  onIncoming: () async {
-                                    final err =
-                                        await widget.store.moveStock(
-                                      product: product,
-                                      quantity: 1,
-                                      type: MovementType.incoming,
-                                      note:
-                                          'Entrada rápida desde catálogo',
-                                    );
-                                    if (!context.mounted) return;
-                                    if (err != null) {
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(
-                                        SnackBar(
-                                          content: Text(err),
-                                          backgroundColor: _C.red,
-                                        ),
-                                      );
-                                    } else {
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(
-                                        SnackBar(
-                                          content: Text(
-                                            '¡Entrada registrada! 1x "${product.name}" agregada a inventario.',
-                                          ),
-                                          backgroundColor: _C.green,
-                                          duration:
-                                              const Duration(seconds: 2),
-                                        ),
-                                      );
-                                    }
-                                  },
-                                  onStockDialog: () => showStockDialog(
-                                      context, widget.store, product),
-                                  onEdit: () =>
-                                      _openProductForm(context, product),
-                                  onDelete: () =>
-                                      _confirmDelete(context, product),
-                                  onViewMedia: () =>
-                                      _showMediaViewer(context, product),
-                                );
-                              },
-                            ),
-                          ),
-
-                          // ── Paginación ──────────────────────────────────
-                          if (totalPages > 1) ...[
-                            const SizedBox(height: 10),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 16, vertical: 10),
-                              decoration: BoxDecoration(
-                                color: _C.bgCard,
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(
-                                    color: _C.strokeLight, width: 1),
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  _PaginationButton(
-                                    icon: Icons.chevron_left_rounded,
-                                    label: 'Anterior',
-                                    enabled: activePage > 1,
-                                    onPressed: () => setState(
-                                        () => currentPage = activePage - 1),
-                                  ),
-                                  const SizedBox(width: 16),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 14, vertical: 6),
-                                    decoration: BoxDecoration(
-                                      color: _C.magenta.withValues(alpha: 0.08),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Text(
-                                      '$activePage / $totalPages',
-                                      style: const TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w800,
-                                        color: _C.magenta,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    '($totalCount productos)',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: _C.textSecondary
-                                          .withValues(alpha: 0.7),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 16),
-                                  _PaginationButton(
-                                    icon: Icons.chevron_right_rounded,
-                                    label: 'Siguiente',
-                                    enabled: activePage < totalPages,
-                                    onPressed: () => setState(
-                                        () => currentPage = activePage + 1),
-                                    iconAfter: true,
-                                  ),
-                                ],
-                              ),
-                            ),
+                      );
+                      final category = _CategorySelect(
+                        selectedCategory: selectedCategory,
+                        expand: isMobile,
+                        categories: widget.store.categoryNames,
+                        onChanged: (value) => setState(() {
+                          selectedCategory = value;
+                          currentPage = 1;
+                        }),
+                      );
+                      final lowStock = _FilterChip(
+                        label: 'STOCK BAJO',
+                        selected: lowStockOnly,
+                        onSelected: (value) => setState(() {
+                          lowStockOnly = value;
+                          currentPage = 1;
+                        }),
+                      );
+                      if (!isMobile) {
+                        return Row(
+                          children: [
+                            Expanded(child: search),
+                            const SizedBox(width: 10),
+                            category,
+                            const SizedBox(width: 10),
+                            lowStock,
                           ],
+                        );
+                      }
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          search,
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(child: category),
+                              const SizedBox(width: 8),
+                              lowStock,
+                            ],
+                          ),
                         ],
-                      ),
-              ),
-            ],
+                      );
+                    }),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // ── Products Grid ────────────────────────────────────────────
+                  Expanded(
+                    child: pagedProducts.isEmpty
+                        ? widget.store.products.isEmpty
+                            ? _EmptyState(
+                                icon: Icons.inventory_2_outlined,
+                                message: 'Todavía no tienes productos',
+                                hint:
+                                    'Registra tu primer producto con su foto, precio y existencia.',
+                                actionLabel: 'AGREGAR PRODUCTO',
+                                onAction: () => _openProductForm(context),
+                              )
+                            : _EmptyState(
+                                icon: Icons.search_off_rounded,
+                                message: 'Ningún producto coincide',
+                                hint:
+                                    'Prueba con otra búsqueda o quita los filtros activos.',
+                                actionLabel: 'QUITAR FILTROS',
+                                actionIcon: Icons.filter_alt_off_rounded,
+                                onAction: _clearProductFilters,
+                              )
+                        : Column(
+                            children: [
+                              Expanded(
+                                child: GridView.builder(
+                                  padding: const EdgeInsets.only(bottom: 12),
+                                  gridDelegate:
+                                      SliverGridDelegateWithFixedCrossAxisCount(
+                                    crossAxisCount: crossAxisCount,
+                                    crossAxisSpacing: isMobile ? 10 : 16,
+                                    mainAxisSpacing: isMobile ? 12 : 18,
+                                    childAspectRatio: isMobile ? 0.56 : 0.60,
+                                  ),
+                                  itemCount: pagedProducts.length,
+                                  itemBuilder: (context, index) {
+                                    final product = pagedProducts[index];
+                                    return _CatalogProductCard(
+                                      product: product,
+                                      onOutgoing: () async {
+                                        final err = await widget.store
+                                            .quickSale(product);
+                                        if (!context.mounted) return;
+                                        if (err != null) {
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            SnackBar(
+                                              content: Text(err),
+                                              backgroundColor: _C.red,
+                                            ),
+                                          );
+                                        } else {
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            SnackBar(
+                                              content: Text(
+                                                '¡Salida registrada! 1x "${product.name}" agregada a ganancias.',
+                                              ),
+                                              backgroundColor: _C.green,
+                                              duration:
+                                                  const Duration(seconds: 2),
+                                            ),
+                                          );
+                                        }
+                                      },
+                                      onIncoming: () async {
+                                        final err =
+                                            await widget.store.moveStock(
+                                          product: product,
+                                          quantity: 1,
+                                          type: MovementType.incoming,
+                                          note: 'Entrada rápida desde catálogo',
+                                        );
+                                        if (!context.mounted) return;
+                                        if (err != null) {
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            SnackBar(
+                                              content: Text(err),
+                                              backgroundColor: _C.red,
+                                            ),
+                                          );
+                                        } else {
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            SnackBar(
+                                              content: Text(
+                                                '¡Entrada registrada! 1x "${product.name}" agregada a inventario.',
+                                              ),
+                                              backgroundColor: _C.green,
+                                              duration:
+                                                  const Duration(seconds: 2),
+                                            ),
+                                          );
+                                        }
+                                      },
+                                      onStockDialog: () => showStockDialog(
+                                          context, widget.store, product),
+                                      onEdit: () =>
+                                          _openProductForm(context, product),
+                                      onDelete: () =>
+                                          _confirmDelete(context, product),
+                                      onViewMedia: () =>
+                                          _showMediaViewer(context, product),
+                                    );
+                                  },
+                                ),
+                              ),
+
+                              // ── Paginación ──────────────────────────────────
+                              if (totalPages > 1) ...[
+                                const SizedBox(height: 10),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 16, vertical: 10),
+                                  decoration: BoxDecoration(
+                                    color: _C.bgCard,
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                        color: _C.strokeLight, width: 1),
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      _PaginationButton(
+                                        icon: Icons.chevron_left_rounded,
+                                        label: 'Anterior',
+                                        enabled: activePage > 1,
+                                        onPressed: () => setState(
+                                            () => currentPage = activePage - 1),
+                                      ),
+                                      const SizedBox(width: 16),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 14, vertical: 6),
+                                        decoration: BoxDecoration(
+                                          color: _C.magenta
+                                              .withValues(alpha: 0.08),
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                        ),
+                                        child: Text(
+                                          '$activePage / $totalPages',
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w800,
+                                            color: _C.magenta,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        '($totalCount productos)',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: _C.textSecondary
+                                              .withValues(alpha: 0.7),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 16),
+                                      _PaginationButton(
+                                        icon: Icons.chevron_right_rounded,
+                                        label: 'Siguiente',
+                                        enabled: activePage < totalPages,
+                                        onPressed: () => setState(
+                                            () => currentPage = activePage + 1),
+                                        iconAfter: true,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -727,8 +796,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _showMediaViewer(
-      BuildContext context, Product product) async {
+  Future<void> _showMediaViewer(BuildContext context, Product product) async {
     Uint8List? memoryBytes;
     if (product.photoBase64.isNotEmpty) {
       try {
@@ -741,8 +809,7 @@ class _HomeScreenState extends State<HomeScreen> {
       context: context,
       builder: (dialogContext) => Dialog(
         backgroundColor: const Color(0xff18181b),
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         clipBehavior: Clip.antiAlias,
         child: SizedBox(
           width: 550,
@@ -770,8 +837,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             Container(
                               padding: const EdgeInsets.all(20),
                               decoration: BoxDecoration(
-                                color:
-                                    Colors.white.withValues(alpha: 0.15),
+                                color: Colors.white.withValues(alpha: 0.15),
                                 shape: BoxShape.circle,
                               ),
                               child: const Icon(Icons.play_arrow_rounded,
@@ -790,8 +856,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         ? InteractiveViewer(
                             minScale: 0.8,
                             maxScale: 4.0,
-                            child: Image.memory(memoryBytes,
-                                fit: BoxFit.contain),
+                            child:
+                                Image.memory(memoryBytes, fit: BoxFit.contain),
                           )
                         : product.imageUrl.isNotEmpty
                             ? InteractiveViewer(
@@ -800,12 +866,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                 child: Image.network(
                                   product.imageUrl,
                                   fit: BoxFit.contain,
-                                  errorBuilder: (_, __, ___) =>
-                                      const Center(
-                                    child: Icon(
-                                        Icons.broken_image_rounded,
-                                        size: 64,
-                                        color: Colors.white38),
+                                  errorBuilder: (_, __, ___) => const Center(
+                                    child: Icon(Icons.broken_image_rounded,
+                                        size: 64, color: Colors.white38),
                                   ),
                                 ),
                               )
@@ -821,13 +884,11 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _confirmDelete(
-      BuildContext context, Product product) async {
+  Future<void> _confirmDelete(BuildContext context, Product product) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(
           children: [
             Container(
@@ -845,8 +906,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         content: Text(
           '¿Deseas eliminar "${product.name}"?\nEsta acción no se puede deshacer.',
-          style: const TextStyle(
-              color: _C.textSecondary, height: 1.5),
+          style: const TextStyle(color: _C.textSecondary, height: 1.5),
         ),
         actions: [
           TextButton(
@@ -867,12 +927,152 @@ class _HomeScreenState extends State<HomeScreen> {
     if (confirmed == true) await widget.store.deleteProduct(product.id);
   }
 
+  Future<void> _confirmLogout(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('¿Cerrar sesión?'),
+        content: const Text(
+          'Tus datos quedan guardados. Necesitarás tu usuario y contraseña para volver a entrar.',
+          style: TextStyle(color: _C.textSecondary, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('CANCELAR'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('CERRAR SESIÓN'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) await widget.store.logout();
+  }
+
+  void _showHelpDialog(BuildContext context) {
+    const sections = [
+      (
+        Icons.dashboard_rounded,
+        'Resumen',
+        'Tu panel principal: unidades en stock, valor del almacén y ganancias de hoy y del mes. '
+            'Abajo verás los productos que se están acabando; tócalos para reabastecer.',
+      ),
+      (
+        Icons.inventory_2_rounded,
+        'Productos',
+        'Toca "Nuevo" para registrar un producto con foto, precio y stock. '
+            'En cada tarjeta: "+1" suma una unidad, "−1" registra una venta, '
+            '"Ajustar" permite mover varias unidades a la vez. El lápiz edita y el bote elimina.',
+      ),
+      (
+        Icons.label_rounded,
+        'Categorías',
+        'Organiza tus productos (por ejemplo Hombre, Mujer, Unisex). '
+            'Si renombras una categoría, todos sus productos se actualizan solos.',
+      ),
+      (
+        Icons.swap_horiz_rounded,
+        'Movimientos',
+        'Historial de cada entrada y salida. Usa "Filtrar" para ver por tipo, categoría, mes o año.',
+      ),
+      (
+        Icons.account_balance_wallet_rounded,
+        'Finanzas',
+        'Define tu fondo inicial y registra tus gastos personales. '
+            'La app calcula tu saldo disponible y en qué se va el dinero.',
+      ),
+      (
+        Icons.warning_amber_rounded,
+        'Stock bajo',
+        'Un producto aparece en alerta cuando su existencia es igual o menor a su "stock mínimo". '
+            'Puedes cambiar ese número al editar el producto.',
+      ),
+      (
+        Icons.cloud_done_outlined,
+        'Sin conexión',
+        'Todo se guarda primero en tu dispositivo y se sincroniza con el servidor cuando hay internet.',
+      ),
+    ];
+
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.help_outline_rounded, color: _C.magenta),
+            SizedBox(width: 10),
+            Expanded(child: Text('¿Cómo usar My Love Depot?')),
+          ],
+        ),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final (icon, title, body) in sections)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 14),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: _C.magenta.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Icon(icon, color: _C.magenta, size: 18),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                title,
+                                style: const TextStyle(
+                                  color: _C.textPrimary,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                body,
+                                style: const TextStyle(
+                                  color: _C.textSecondary,
+                                  fontSize: 13,
+                                  height: 1.4,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('¡ENTENDIDO!'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showInstallAppDialog(BuildContext context) {
     showDialog(
       context: context,
       builder: (dialogContext) => Dialog(
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         child: Container(
           width: 500,
           padding: const EdgeInsets.all(28),
@@ -912,8 +1112,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         Text(
                           'Instala My Love Depot en tu dispositivo',
-                          style: TextStyle(
-                              fontSize: 11, color: _C.textSecondary),
+                          style:
+                              TextStyle(fontSize: 11, color: _C.textSecondary),
                         ),
                       ],
                     ),
@@ -994,8 +1194,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           Navigator.pop(dialogContext);
                           await PwaHelpers.triggerPwaInstall();
                         },
-                        icon: const Icon(Icons.download_rounded,
-                            size: 18),
+                        icon: const Icon(Icons.download_rounded, size: 18),
                         style: FilledButton.styleFrom(
                           backgroundColor: Colors.transparent,
                           foregroundColor: Colors.white,
@@ -1011,13 +1210,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                   OutlinedButton.icon(
                     onPressed: () => Navigator.pop(dialogContext),
-                    icon: const Icon(
-                        Icons.check_circle_outline_rounded,
+                    icon: const Icon(Icons.check_circle_outline_rounded,
                         size: 18),
                     label: const Text('¡ENTENDIDO!',
                         style: TextStyle(
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 1.1)),
+                            fontWeight: FontWeight.w800, letterSpacing: 1.1)),
                   ),
                 ],
               ),
@@ -1133,9 +1330,7 @@ class _AppBarChip extends StatelessWidget {
 
 class _AppBarAction extends StatelessWidget {
   const _AppBarAction(
-      {required this.icon,
-      required this.label,
-      required this.onPressed});
+      {required this.icon, required this.label, required this.onPressed});
   final IconData icon;
   final String label;
   final VoidCallback onPressed;
@@ -1168,9 +1363,7 @@ class _AppBarAction extends StatelessWidget {
 // ── Page header ────────────────────────────────────────────────────────────────
 class _PageHeader extends StatelessWidget {
   const _PageHeader(
-      {required this.icon,
-      required this.title,
-      required this.subtitle});
+      {required this.icon, required this.title, required this.subtitle});
   final IconData icon;
   final String title;
   final String subtitle;
@@ -1201,28 +1394,34 @@ class _PageHeader extends StatelessWidget {
           child: Icon(icon, color: _C.magenta, size: 20),
         ),
         const SizedBox(width: 12),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: const TextStyle(
-                color: _C.textPrimary,
-                fontSize: 15,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 2,
+        Flexible(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: _C.textPrimary,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.5,
+                ),
               ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              subtitle,
-              style: TextStyle(
-                color: _C.textSecondary.withValues(alpha: 0.8),
-                fontSize: 11,
-                letterSpacing: 0.3,
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: _C.textSecondary.withValues(alpha: 0.8),
+                  fontSize: 11,
+                  letterSpacing: 0.3,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ],
     );
@@ -1231,20 +1430,23 @@ class _PageHeader extends StatelessWidget {
 
 // ── Search field ──────────────────────────────────────────────────────────────
 class _SearchField extends StatelessWidget {
-  const _SearchField({required this.onChanged});
+  const _SearchField({required this.controller, required this.onChanged});
+  final TextEditingController controller;
   final ValueChanged<String> onChanged;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 42,
+      height: 44,
       decoration: BoxDecoration(
         color: _C.bgDeep,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: _C.strokeLight, width: 1),
       ),
       child: TextField(
+        controller: controller,
         onChanged: onChanged,
+        textInputAction: TextInputAction.search,
         style: const TextStyle(color: _C.textPrimary, fontSize: 13),
         decoration: InputDecoration(
           hintText: 'Buscar por nombre, SKU o categoría…',
@@ -1254,6 +1456,17 @@ class _SearchField extends StatelessWidget {
           ),
           prefixIcon:
               const Icon(Icons.search_rounded, color: _C.magenta, size: 20),
+          suffixIcon: controller.text.isEmpty
+              ? null
+              : IconButton(
+                  tooltip: 'Borrar búsqueda',
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                  onPressed: () {
+                    controller.clear();
+                    onChanged('');
+                  },
+                ),
+          filled: false,
           border: InputBorder.none,
           enabledBorder: InputBorder.none,
           focusedBorder: InputBorder.none,
@@ -1267,9 +1480,7 @@ class _SearchField extends StatelessWidget {
 // ── Filter chip ────────────────────────────────────────────────────────────────
 class _FilterChip extends StatelessWidget {
   const _FilterChip(
-      {required this.label,
-      required this.selected,
-      required this.onSelected});
+      {required this.label, required this.selected, required this.onSelected});
   final String label;
   final bool selected;
   final ValueChanged<bool> onSelected;
@@ -1283,9 +1494,7 @@ class _FilterChip extends StatelessWidget {
         curve: Curves.easeOut,
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
-          color: selected
-              ? _C.magenta.withValues(alpha: 0.12)
-              : _C.bgDeep,
+          color: selected ? _C.magenta.withValues(alpha: 0.12) : _C.bgDeep,
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
             color: selected ? _C.magenta : _C.strokeLight,
@@ -1296,9 +1505,7 @@ class _FilterChip extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              selected
-                  ? Icons.check_circle_rounded
-                  : Icons.circle_outlined,
+              selected ? Icons.check_circle_rounded : Icons.circle_outlined,
               size: 14,
               color: selected ? _C.magenta : _C.textSecondary,
             ),
@@ -1430,7 +1637,11 @@ class _CatalogProductCardState extends State<_CatalogProductCard> {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 250),
         curve: Curves.easeOut,
-        transform: _hovering ? (Matrix4.identity()..setEntry(0, 0, 1.02)..setEntry(1, 1, 1.02)) : Matrix4.identity(),
+        transform: _hovering
+            ? (Matrix4.identity()
+              ..setEntry(0, 0, 1.02)
+              ..setEntry(1, 1, 1.02))
+            : Matrix4.identity(),
         transformAlignment: Alignment.center,
         decoration: BoxDecoration(
           color: Colors.white,
@@ -1467,8 +1678,7 @@ class _CatalogProductCardState extends State<_CatalogProductCard> {
                               ? Image.network(
                                   product.imageUrl,
                                   fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) =>
-                                      const Center(
+                                  errorBuilder: (_, __, ___) => const Center(
                                     child: Icon(Icons.broken_image_rounded,
                                         color: Colors.white38, size: 36),
                                   ),
@@ -1502,8 +1712,7 @@ class _CatalogProductCardState extends State<_CatalogProductCard> {
                           borderRadius: BorderRadius.circular(8),
                           boxShadow: [
                             BoxShadow(
-                              color:
-                                  Colors.black.withValues(alpha: 0.1),
+                              color: Colors.black.withValues(alpha: 0.1),
                               blurRadius: 4,
                             ),
                           ],
@@ -1512,7 +1721,7 @@ class _CatalogProductCardState extends State<_CatalogProductCard> {
                           product.category.toUpperCase(),
                           style: TextStyle(
                             color: categoryText,
-                            fontSize: 8.5,
+                            fontSize: 10,
                             fontWeight: FontWeight.w800,
                             letterSpacing: 0.5,
                           ),
@@ -1530,17 +1739,20 @@ class _CatalogProductCardState extends State<_CatalogProductCard> {
                           if (product.isVideo) ...[
                             _ImageActionBtn(
                               icon: Icons.play_arrow_rounded,
+                              tooltip: 'Ver video',
                               onTap: widget.onViewMedia,
                             ),
                             const SizedBox(width: 4),
                           ],
                           _ImageActionBtn(
                             icon: Icons.edit_rounded,
+                            tooltip: 'Editar producto',
                             onTap: widget.onEdit,
                           ),
                           const SizedBox(width: 4),
                           _ImageActionBtn(
                             icon: Icons.delete_outline_rounded,
+                            tooltip: 'Eliminar producto',
                             onTap: widget.onDelete,
                           ),
                         ],
@@ -1558,8 +1770,7 @@ class _CatalogProductCardState extends State<_CatalogProductCard> {
                             borderRadius: BorderRadius.circular(6),
                             boxShadow: [
                               BoxShadow(
-                                color:
-                                    Colors.black.withValues(alpha: 0.2),
+                                color: Colors.black.withValues(alpha: 0.2),
                                 blurRadius: 8,
                               ),
                             ],
@@ -1618,8 +1829,7 @@ class _CatalogProductCardState extends State<_CatalogProductCard> {
                                     : product.hasLowStock
                                         ? const Color(0xfffef3c7)
                                         : const Color(0xffdcfce7),
-                                borderRadius:
-                                    BorderRadius.circular(6),
+                                borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
                                 isAgotado
@@ -1631,7 +1841,7 @@ class _CatalogProductCardState extends State<_CatalogProductCard> {
                                       : product.hasLowStock
                                           ? const Color(0xff92400e)
                                           : const Color(0xff166534),
-                                  fontSize: 9.5,
+                                  fontSize: 10.5,
                                   fontWeight: FontWeight.w800,
                                   letterSpacing: 0.3,
                                 ),
@@ -1643,12 +1853,11 @@ class _CatalogProductCardState extends State<_CatalogProductCard> {
                                 child: Text(
                                   product.sku,
                                   maxLines: 1,
-                                  overflow:
-                                      TextOverflow.ellipsis,
+                                  overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
-                                    color: _C.textSecondary
-                                        .withValues(alpha: 0.5),
-                                    fontSize: 9,
+                                    color:
+                                        _C.textSecondary.withValues(alpha: 0.7),
+                                    fontSize: 10,
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
@@ -1661,18 +1870,24 @@ class _CatalogProductCardState extends State<_CatalogProductCard> {
 
                     // Price + adjust
                     Row(
-                      mainAxisAlignment:
-                          MainAxisAlignment.spaceBetween,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          '\$${product.price.toStringAsFixed(product.price.truncateToDouble() == product.price ? 0 : 2)}',
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w900,
-                            color: Color(0xff18181b),
-                            letterSpacing: -0.5,
+                        Flexible(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              '\$${product.price.toStringAsFixed(product.price.truncateToDouble() == product.price ? 0 : 2)}',
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w900,
+                                color: Color(0xff18181b),
+                                letterSpacing: -0.5,
+                              ),
+                            ),
                           ),
                         ),
+                        const SizedBox(width: 4),
                         InkWell(
                           onTap: widget.onStockDialog,
                           borderRadius: BorderRadius.circular(16),
@@ -1680,10 +1895,8 @@ class _CatalogProductCardState extends State<_CatalogProductCard> {
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 8, vertical: 4),
                             decoration: BoxDecoration(
-                              color: _C.magenta
-                                  .withValues(alpha: 0.08),
-                              borderRadius:
-                                  BorderRadius.circular(16),
+                              color: _C.magenta.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(16),
                             ),
                             child: Row(
                               children: [
@@ -1693,7 +1906,7 @@ class _CatalogProductCardState extends State<_CatalogProductCard> {
                                 const Text(
                                   'Ajustar',
                                   style: TextStyle(
-                                    fontSize: 10,
+                                    fontSize: 11,
                                     color: _C.magenta,
                                     fontWeight: FontWeight.w700,
                                   ),
@@ -1713,22 +1926,18 @@ class _CatalogProductCardState extends State<_CatalogProductCard> {
                             height: 32,
                             child: OutlinedButton.icon(
                               onPressed: widget.onIncoming,
-                              icon: const Icon(
-                                  Icons.add_rounded,
-                                  size: 14),
-                              label: const Text('ENTRADA'),
+                              icon: const Icon(Icons.add_rounded, size: 14),
+                              label: const Text('+1 ENTRADA'),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: _C.green,
                                 side: const BorderSide(
-                                    color: _C.green,
-                                    width: 1.2),
+                                    color: _C.green, width: 1.2),
                                 padding: EdgeInsets.zero,
                                 shape: RoundedRectangleBorder(
-                                  borderRadius:
-                                      BorderRadius.circular(24),
+                                  borderRadius: BorderRadius.circular(24),
                                 ),
                                 textStyle: const TextStyle(
-                                  fontSize: 9.5,
+                                  fontSize: 10.5,
                                   fontWeight: FontWeight.w800,
                                   letterSpacing: 0.5,
                                 ),
@@ -1742,8 +1951,7 @@ class _CatalogProductCardState extends State<_CatalogProductCard> {
                             height: 32,
                             child: Container(
                               decoration: BoxDecoration(
-                                borderRadius:
-                                    BorderRadius.circular(24),
+                                borderRadius: BorderRadius.circular(24),
                                 gradient: isAgotado
                                     ? null
                                     : const LinearGradient(
@@ -1752,41 +1960,30 @@ class _CatalogProductCardState extends State<_CatalogProductCard> {
                                           _C.magentaDeep,
                                         ],
                                       ),
-                                color: isAgotado
-                                    ? const Color(0xffe2e8f0)
-                                    : null,
+                                color:
+                                    isAgotado ? const Color(0xffe2e8f0) : null,
                               ),
                               child: ElevatedButton.icon(
-                                onPressed: isAgotado
-                                    ? null
-                                    : widget.onOutgoing,
-                                icon: const Icon(
-                                    Icons.remove_rounded,
-                                    size: 14),
-                                label: const Text('SALIDA'),
+                                onPressed: isAgotado ? null : widget.onOutgoing,
+                                icon:
+                                    const Icon(Icons.remove_rounded, size: 14),
+                                label: const Text('−1 VENTA'),
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor:
-                                      Colors.transparent,
-                                  foregroundColor:
-                                      Colors.white,
+                                  backgroundColor: Colors.transparent,
+                                  foregroundColor: Colors.white,
                                   disabledBackgroundColor:
                                       const Color(0xffe2e8f0),
                                   disabledForegroundColor:
                                       const Color(0xff94a3b8),
                                   padding: EdgeInsets.zero,
                                   elevation: 0,
-                                  shadowColor:
-                                      Colors.transparent,
-                                  shape:
-                                      RoundedRectangleBorder(
-                                    borderRadius:
-                                        BorderRadius.circular(
-                                            24),
+                                  shadowColor: Colors.transparent,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(24),
                                   ),
                                   textStyle: const TextStyle(
-                                    fontSize: 9.5,
-                                    fontWeight:
-                                        FontWeight.w800,
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w800,
                                     letterSpacing: 0.5,
                                   ),
                                 ),
@@ -1809,12 +2006,21 @@ class _CatalogProductCardState extends State<_CatalogProductCard> {
 
 // ── Image action button ────────────────────────────────────────────────────────
 class _ImageActionBtn extends StatelessWidget {
-  const _ImageActionBtn({required this.icon, required this.onTap});
+  const _ImageActionBtn(
+      {required this.icon, required this.tooltip, required this.onTap});
   final IconData icon;
+  final String tooltip;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: _buildButton(),
+    );
+  }
+
+  Widget _buildButton() {
     return Material(
       color: Colors.white.withValues(alpha: 0.95),
       shape: const CircleBorder(),
@@ -1834,32 +2040,66 @@ class _ImageActionBtn extends StatelessWidget {
 
 // ── Empty state ────────────────────────────────────────────────────────────────
 class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.icon, required this.message});
+  const _EmptyState({
+    required this.icon,
+    required this.message,
+    this.hint,
+    this.actionLabel,
+    this.actionIcon,
+    this.onAction,
+  });
   final IconData icon;
   final String message;
+  final String? hint;
+  final String? actionLabel;
+  final IconData? actionIcon;
+  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: _C.magenta.withValues(alpha: 0.06),
-              shape: BoxShape.circle,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: _C.magenta.withValues(alpha: 0.06),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: _C.textSecondary, size: 48),
             ),
-            child: Icon(icon, color: _C.textSecondary, size: 48),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            message,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-                color: _C.textSecondary, fontSize: 14),
-          ),
-        ],
+            const SizedBox(height: 16),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: _C.textPrimary,
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            if (hint != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                hint!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                    color: _C.textSecondary, fontSize: 13, height: 1.4),
+              ),
+            ],
+            if (actionLabel != null && onAction != null) ...[
+              const SizedBox(height: 18),
+              FilledButton.icon(
+                onPressed: onAction,
+                icon: Icon(actionIcon ?? Icons.add_rounded, size: 18),
+                label: Text(actionLabel!),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -1874,13 +2114,16 @@ class _SectionDivider extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Text(
-          label,
-          style: const TextStyle(
-            color: _C.textSecondary,
-            fontSize: 11,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 1.2,
+        Flexible(
+          child: Text(
+            label,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: _C.textSecondary,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.2,
+            ),
           ),
         ),
         const SizedBox(width: 10),
@@ -1905,8 +2148,10 @@ class _CategorySelect extends StatelessWidget {
     required this.selectedCategory,
     required this.categories,
     required this.onChanged,
+    this.expand = false,
   });
 
+  final bool expand;
   final String selectedCategory;
   final List<String> categories;
   final ValueChanged<String> onChanged;
@@ -1933,6 +2178,7 @@ class _CategorySelect extends StatelessWidget {
         child: DropdownButton<String>(
           borderRadius: BorderRadius.circular(24),
           value: effectiveValue,
+          isExpanded: expand,
           icon: const Icon(Icons.keyboard_arrow_down_rounded,
               size: 18, color: _C.magenta),
           isDense: true,
@@ -1959,9 +2205,20 @@ class _CategorySelect extends StatelessWidget {
 
 // ── Dashboard ──────────────────────────────────────────────────────────────────
 class _Dashboard extends StatelessWidget {
-  const _Dashboard({required this.store, required this.onShowProducts});
+  const _Dashboard({
+    required this.store,
+    required this.onShowLowStock,
+    required this.onShowProducts,
+    required this.onShowMovements,
+    required this.onNewProduct,
+    required this.onNewExpense,
+  });
   final InventoryStore store;
+  final VoidCallback onShowLowStock;
   final VoidCallback onShowProducts;
+  final VoidCallback onShowMovements;
+  final VoidCallback onNewProduct;
+  final VoidCallback onNewExpense;
 
   @override
   Widget build(BuildContext context) {
@@ -2031,13 +2288,72 @@ class _Dashboard extends StatelessWidget {
                     physics: const NeverScrollableScrollPhysics(),
                     crossAxisSpacing: isMobile ? 10 : 14,
                     mainAxisSpacing: isMobile ? 10 : 14,
-                    childAspectRatio: isMobile ? 2.2 : 2.6,
+                    childAspectRatio: isMobile ? 2.0 : 2.6,
                     children: cards,
                   ),
 
                   const SizedBox(height: 28),
 
-                  const _SectionDivider(label: 'ATENCIÓN REQUERIDA'),
+                  // ── Quick actions ──────────────────────────────────────────
+                  const _SectionDivider(label: 'ACCIONES RÁPIDAS'),
+                  const SizedBox(height: 14),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      _QuickAction(
+                        icon: Icons.add_box_rounded,
+                        label: 'Nuevo producto',
+                        color: _C.magenta,
+                        onTap: onNewProduct,
+                      ),
+                      _QuickAction(
+                        icon: Icons.storefront_rounded,
+                        label: 'Ver catálogo',
+                        color: const Color(0xff2563eb),
+                        onTap: onShowProducts,
+                      ),
+                      _QuickAction(
+                        icon: Icons.receipt_long_rounded,
+                        label: 'Registrar gasto',
+                        color: const Color(0xffea580c),
+                        onTap: onNewExpense,
+                      ),
+                      _QuickAction(
+                        icon: Icons.history_rounded,
+                        label: 'Ver movimientos',
+                        color: const Color(0xff7c3aed),
+                        onTap: onShowMovements,
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 28),
+
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _SectionDivider(
+                          label: store.lowStockCount == 0
+                              ? 'ATENCIÓN REQUERIDA'
+                              : 'ATENCIÓN REQUERIDA (${store.lowStockCount})',
+                        ),
+                      ),
+                      if (store.lowStockCount > 0)
+                        TextButton(
+                          onPressed: onShowLowStock,
+                          child: const Text('Ver todos'),
+                        ),
+                    ],
+                  ),
+                  if (store.lowStockCount > 0)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 4),
+                      child: Text(
+                        'Estos productos llegaron a su stock mínimo. Toca uno para registrar una entrada.',
+                        style: TextStyle(color: _C.textSecondary, fontSize: 12),
+                      ),
+                    ),
                   const SizedBox(height: 16),
 
                   // ── Low stock list ──────────────────────────────────────────
@@ -2048,8 +2364,7 @@ class _Dashboard extends StatelessWidget {
                         color: _C.bgCard,
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
-                            color: _C.green.withValues(alpha: 0.2),
-                            width: 1),
+                            color: _C.green.withValues(alpha: 0.2), width: 1),
                         boxShadow: [
                           BoxShadow(
                             color: _C.green.withValues(alpha: 0.05),
@@ -2065,10 +2380,8 @@ class _Dashboard extends StatelessWidget {
                               color: _C.green.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            child: const Icon(
-                                Icons.check_circle_rounded,
-                                color: _C.green,
-                                size: 24),
+                            child: const Icon(Icons.check_circle_rounded,
+                                color: _C.green, size: 24),
                           ),
                           const SizedBox(width: 14),
                           const Expanded(
@@ -2087,8 +2400,7 @@ class _Dashboard extends StatelessWidget {
                                 Text(
                                   'Todos los productos cuentan con existencias suficientes.',
                                   style: TextStyle(
-                                      color: _C.textSecondary,
-                                      fontSize: 12),
+                                      color: _C.textSecondary, fontSize: 12),
                                 ),
                               ],
                             ),
@@ -2097,14 +2409,18 @@ class _Dashboard extends StatelessWidget {
                       ),
                     )
                   else
-                    ...store.products
-                        .where((item) => item.hasLowStock)
-                        .map(
+                    ...store.products.where((item) => item.hasLowStock).map(
                           (product) => Padding(
                             padding: const EdgeInsets.only(bottom: 8),
                             child: _LowStockTile(
-                                product: product,
-                                onTap: onShowProducts),
+                              product: product,
+                              onTap: () => showStockDialog(
+                                context,
+                                store,
+                                product,
+                                incomingOnly: true,
+                              ),
+                            ),
                           ),
                         ),
                 ],
@@ -2127,13 +2443,11 @@ class _LowStockTile extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
           color: _C.bgCard,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-              color: _C.amber.withValues(alpha: 0.25), width: 1),
+          border: Border.all(color: _C.amber.withValues(alpha: 0.25), width: 1),
           boxShadow: [
             BoxShadow(
               color: _C.amber.withValues(alpha: 0.05),
@@ -2168,22 +2482,83 @@ class _LowStockTile extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     '${product.stock} disponibles  ·  mínimo ${product.minimumStock}',
-                    style: const TextStyle(
-                        color: _C.textSecondary, fontSize: 12),
+                    style:
+                        const TextStyle(color: _C.textSecondary, fontSize: 12),
                   ),
                 ],
               ),
             ),
             Container(
-              padding: const EdgeInsets.all(6),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
-                color: _C.magenta.withValues(alpha: 0.06),
+                color: _C.green.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: const Icon(Icons.chevron_right_rounded,
-                  color: _C.magenta, size: 18),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.add_rounded, color: _C.green, size: 16),
+                  SizedBox(width: 2),
+                  Text(
+                    'Reabastecer',
+                    style: TextStyle(
+                      color: _C.green,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Quick action button (Dashboard) ────────────────────────────────────────────
+class _QuickAction extends StatelessWidget {
+  const _QuickAction({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: _C.bgCard,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: color.withValues(alpha: 0.2)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, color: color, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: const TextStyle(
+                  color: _C.textPrimary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -2236,12 +2611,12 @@ class _MetricCard extends StatelessWidget {
                   ? LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
-                      colors: gradColors!.map((c) => c.withValues(alpha: 0.12)).toList(),
+                      colors: gradColors!
+                          .map((c) => c.withValues(alpha: 0.12))
+                          .toList(),
                     )
                   : null,
-              color: gradColors == null
-                  ? accent.withValues(alpha: 0.1)
-                  : null,
+              color: gradColors == null ? accent.withValues(alpha: 0.1) : null,
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(icon, color: accent, size: 20),
@@ -2272,9 +2647,9 @@ class _MetricCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: _C.textSecondary,
-                    fontSize: 8.5,
+                    fontSize: 10,
                     fontWeight: FontWeight.w800,
-                    letterSpacing: 0.8,
+                    letterSpacing: 0.6,
                   ),
                 ),
                 if (subtitle != null)
@@ -2283,9 +2658,8 @@ class _MetricCard extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color:
-                          _C.textSecondary.withValues(alpha: 0.65),
-                      fontSize: 8,
+                      color: _C.textSecondary.withValues(alpha: 0.8),
+                      fontSize: 10,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -2313,6 +2687,8 @@ class _MovementsPageState extends State<_MovementsPage> {
   int? _yearFilter;
   String? _categoryFilter;
   bool _showFilters = false;
+  // Fuerza a los desplegables a reiniciar su valor al limpiar los filtros.
+  int _filtersEpoch = 0;
 
   InputDecoration _dropdownDecoration(String label) {
     return InputDecoration(
@@ -2336,16 +2712,18 @@ class _MovementsPageState extends State<_MovementsPage> {
     );
   }
 
-
-
   List<StockMovement> get _filtered {
     return widget.store.movements.where((m) {
       if (m.type == MovementType.expense) return false;
       if (_typeFilter != null && m.type != _typeFilter) return false;
-      if (_monthFilter != null && m.createdAt.month != _monthFilter) return false;
+      if (_monthFilter != null && m.createdAt.month != _monthFilter) {
+        return false;
+      }
       if (_yearFilter != null && m.createdAt.year != _yearFilter) return false;
       if (_categoryFilter != null) {
-        final p = widget.store.products.where((prod) => prod.id == m.productId).firstOrNull;
+        final p = widget.store.products
+            .where((prod) => prod.id == m.productId)
+            .firstOrNull;
         if (p?.category != _categoryFilter) return false;
       }
       return true;
@@ -2355,20 +2733,30 @@ class _MovementsPageState extends State<_MovementsPage> {
   @override
   Widget build(BuildContext context) {
     final filtered = _filtered;
-    final stockMovements = widget.store.movements.where((m) => m.type != MovementType.expense).toList();
+    final stockMovements = widget.store.movements
+        .where((m) => m.type != MovementType.expense)
+        .toList();
     final incomingCount =
         stockMovements.where((m) => m.type == MovementType.incoming).length;
     final outgoingCount =
         stockMovements.where((m) => m.type == MovementType.outgoing).length;
 
-    final availableYears = stockMovements.map((m) => m.createdAt.year).toSet().toList()..sort();
+    final availableYears =
+        stockMovements.map((m) => m.createdAt.year).toSet().toList()..sort();
     if (availableYears.isEmpty) availableYears.add(DateTime.now().year);
+    final activeFilters = [
+      _typeFilter,
+      _monthFilter,
+      _yearFilter,
+      _categoryFilter
+    ].where((f) => f != null).length;
+    final isMobile = MediaQuery.sizeOf(context).width < 600;
 
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 900),
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: EdgeInsets.all(isMobile ? 12 : 24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -2383,10 +2771,35 @@ class _MovementsPageState extends State<_MovementsPage> {
                           '${stockMovements.length} movs registrados  ·  $incomingCount entradas  ·  $outgoingCount salidas',
                     ),
                   ),
-                  TextButton.icon(
-                    onPressed: () => setState(() => _showFilters = !_showFilters),
-                    icon: Icon(_showFilters ? Icons.expand_less : Icons.filter_alt_rounded, color: _C.magenta),
-                    label: Text(_showFilters ? 'OCULTAR FILTROS' : 'FILTRAR', style: const TextStyle(color: _C.magenta, fontWeight: FontWeight.bold)),
+                  Badge(
+                    isLabelVisible: activeFilters > 0,
+                    label: Text('$activeFilters'),
+                    child: isMobile
+                        ? IconButton(
+                            tooltip:
+                                _showFilters ? 'Ocultar filtros' : 'Filtrar',
+                            onPressed: () =>
+                                setState(() => _showFilters = !_showFilters),
+                            icon: Icon(
+                                _showFilters
+                                    ? Icons.expand_less
+                                    : Icons.filter_alt_rounded,
+                                color: _C.magenta),
+                          )
+                        : TextButton.icon(
+                            onPressed: () =>
+                                setState(() => _showFilters = !_showFilters),
+                            icon: Icon(
+                                _showFilters
+                                    ? Icons.expand_less
+                                    : Icons.filter_alt_rounded,
+                                color: _C.magenta),
+                            label: Text(
+                                _showFilters ? 'OCULTAR FILTROS' : 'FILTRAR',
+                                style: const TextStyle(
+                                    color: _C.magenta,
+                                    fontWeight: FontWeight.bold)),
+                          ),
                   ),
                 ],
               ),
@@ -2416,7 +2829,8 @@ class _MovementsPageState extends State<_MovementsPage> {
                           _FilterChip(
                             label: 'TODAS',
                             selected: _typeFilter == null,
-                            onSelected: (_) => setState(() => _typeFilter = null),
+                            onSelected: (_) =>
+                                setState(() => _typeFilter = null),
                           ),
                           _FilterChip(
                             label: 'ENTRADAS',
@@ -2437,15 +2851,23 @@ class _MovementsPageState extends State<_MovementsPage> {
                         children: [
                           Expanded(
                             child: DropdownButtonFormField<String?>(
+                              key: ValueKey('Categoría-$_filtersEpoch'),
                               initialValue: _categoryFilter,
                               borderRadius: BorderRadius.circular(24),
                               decoration: _dropdownDecoration('Categoría'),
                               isExpanded: true,
                               items: [
-                                const DropdownMenuItem(value: null, child: Text('Todas las categorías')),
-                                ...widget.store.categoryNames.map((c) => DropdownMenuItem(value: c, child: Text(c, overflow: TextOverflow.ellipsis))),
+                                const DropdownMenuItem(
+                                    value: null,
+                                    child: Text('Todas las categorías')),
+                                ...widget.store.categoryNames.map((c) =>
+                                    DropdownMenuItem(
+                                        value: c,
+                                        child: Text(c,
+                                            overflow: TextOverflow.ellipsis))),
                               ],
-                              onChanged: (val) => setState(() => _categoryFilter = val),
+                              onChanged: (val) =>
+                                  setState(() => _categoryFilter = val),
                             ),
                           ),
                         ],
@@ -2455,38 +2877,57 @@ class _MovementsPageState extends State<_MovementsPage> {
                         children: [
                           Expanded(
                             child: DropdownButtonFormField<int?>(
+                              key: ValueKey('Mes-$_filtersEpoch'),
                               initialValue: _monthFilter,
                               borderRadius: BorderRadius.circular(24),
                               decoration: _dropdownDecoration('Mes'),
                               items: const [
-                                DropdownMenuItem(value: null, child: Text('Todos los meses')),
-                                DropdownMenuItem(value: 1, child: Text('Enero')),
-                                DropdownMenuItem(value: 2, child: Text('Febrero')),
-                                DropdownMenuItem(value: 3, child: Text('Marzo')),
-                                DropdownMenuItem(value: 4, child: Text('Abril')),
+                                DropdownMenuItem(
+                                    value: null,
+                                    child: Text('Todos los meses')),
+                                DropdownMenuItem(
+                                    value: 1, child: Text('Enero')),
+                                DropdownMenuItem(
+                                    value: 2, child: Text('Febrero')),
+                                DropdownMenuItem(
+                                    value: 3, child: Text('Marzo')),
+                                DropdownMenuItem(
+                                    value: 4, child: Text('Abril')),
                                 DropdownMenuItem(value: 5, child: Text('Mayo')),
-                                DropdownMenuItem(value: 6, child: Text('Junio')),
-                                DropdownMenuItem(value: 7, child: Text('Julio')),
-                                DropdownMenuItem(value: 8, child: Text('Agosto')),
-                                DropdownMenuItem(value: 9, child: Text('Septiembre')),
-                                DropdownMenuItem(value: 10, child: Text('Octubre')),
-                                DropdownMenuItem(value: 11, child: Text('Noviembre')),
-                                DropdownMenuItem(value: 12, child: Text('Diciembre')),
+                                DropdownMenuItem(
+                                    value: 6, child: Text('Junio')),
+                                DropdownMenuItem(
+                                    value: 7, child: Text('Julio')),
+                                DropdownMenuItem(
+                                    value: 8, child: Text('Agosto')),
+                                DropdownMenuItem(
+                                    value: 9, child: Text('Septiembre')),
+                                DropdownMenuItem(
+                                    value: 10, child: Text('Octubre')),
+                                DropdownMenuItem(
+                                    value: 11, child: Text('Noviembre')),
+                                DropdownMenuItem(
+                                    value: 12, child: Text('Diciembre')),
                               ],
-                              onChanged: (val) => setState(() => _monthFilter = val),
+                              onChanged: (val) =>
+                                  setState(() => _monthFilter = val),
                             ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: DropdownButtonFormField<int?>(
+                              key: ValueKey('Año-$_filtersEpoch'),
                               initialValue: _yearFilter,
                               borderRadius: BorderRadius.circular(24),
                               decoration: _dropdownDecoration('Año'),
                               items: [
-                                const DropdownMenuItem(value: null, child: Text('Todos los años')),
-                                ...availableYears.map((y) => DropdownMenuItem(value: y, child: Text('$y'))),
+                                const DropdownMenuItem(
+                                    value: null, child: Text('Todos los años')),
+                                ...availableYears.map((y) => DropdownMenuItem(
+                                    value: y, child: Text('$y'))),
                               ],
-                              onChanged: (val) => setState(() => _yearFilter = val),
+                              onChanged: (val) =>
+                                  setState(() => _yearFilter = val),
                             ),
                           ),
                         ],
@@ -2496,27 +2937,48 @@ class _MovementsPageState extends State<_MovementsPage> {
                 ),
               if (_showFilters) const SizedBox(height: 16),
 
-              Text(
-                '${filtered.length} resultado${filtered.length == 1 ? '' : 's'}',
-                style: TextStyle(
-                  color: _C.textSecondary.withValues(alpha: 0.7),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
+              Row(
+                children: [
+                  Text(
+                    '${filtered.length} resultado${filtered.length == 1 ? '' : 's'}',
+                    style: TextStyle(
+                      color: _C.textSecondary.withValues(alpha: 0.8),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const Spacer(),
+                  if (activeFilters > 0)
+                    TextButton.icon(
+                      onPressed: () => setState(() {
+                        _typeFilter = null;
+                        _monthFilter = null;
+                        _yearFilter = null;
+                        _categoryFilter = null;
+                        _filtersEpoch++;
+                      }),
+                      icon: const Icon(Icons.filter_alt_off_rounded, size: 16),
+                      label: const Text('Quitar filtros'),
+                    ),
+                ],
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 6),
 
               // ── Movement list ─────────────────────────────────────────────
               Expanded(
                 child: filtered.isEmpty
                     ? _EmptyState(
                         icon: Icons.swap_horiz_outlined,
-                        message: 'No hay registros que coincidan con los filtros.',
+                        message: stockMovements.isEmpty
+                            ? 'Aún no hay movimientos'
+                            : 'Ningún movimiento coincide con los filtros',
+                        hint: stockMovements.isEmpty
+                            ? 'Cada entrada o venta que registres en Productos aparecerá aquí.'
+                            : 'Cambia o quita los filtros para ver más resultados.',
                       )
                     : ListView.separated(
                         itemCount: filtered.length,
-                        separatorBuilder: (_, __) =>
-                            const SizedBox(height: 8),
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
                         itemBuilder: (context, index) {
                           final movement = filtered[index];
                           return _MovementTile(movement: movement);
@@ -2565,7 +3027,9 @@ class _MovementTileState extends State<_MovementTile> {
           color: _hovering ? _C.bgCard : _C.bgBase,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: _hovering ? color.withValues(alpha: 0.3) : color.withValues(alpha: 0.15),
+            color: _hovering
+                ? color.withValues(alpha: 0.3)
+                : color.withValues(alpha: 0.15),
             width: 1,
           ),
           boxShadow: _hovering
@@ -2592,7 +3056,11 @@ class _MovementTileState extends State<_MovementTile> {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
-                expense ? Icons.money_off : (incoming ? Icons.south_west_rounded : Icons.north_east_rounded),
+                expense
+                    ? Icons.money_off
+                    : (incoming
+                        ? Icons.south_west_rounded
+                        : Icons.north_east_rounded),
                 color: color,
                 size: 18,
               ),
@@ -2626,7 +3094,8 @@ class _MovementTileState extends State<_MovementTile> {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
                     color: color.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(10),
@@ -2636,7 +3105,9 @@ class _MovementTileState extends State<_MovementTile> {
                     ),
                   ),
                   child: Text(
-                    expense ? '-\$${movement.unitPrice.toStringAsFixed(2)}' : '${incoming ? '+' : '-'}${movement.quantity}',
+                    expense
+                        ? '-\$${movement.unitPrice.toStringAsFixed(2)}'
+                        : '${incoming ? '+' : '-'}${movement.quantity}',
                     style: TextStyle(
                       color: color,
                       fontWeight: FontWeight.w800,
@@ -2694,9 +3165,7 @@ class _InstallStep extends StatelessWidget {
           child: Text(
             number,
             style: const TextStyle(
-                color: Colors.white,
-                fontSize: 11,
-                fontWeight: FontWeight.bold),
+                color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
           ),
         ),
         const SizedBox(width: 10),
@@ -2704,9 +3173,7 @@ class _InstallStep extends StatelessWidget {
           child: Text(
             text,
             style: const TextStyle(
-                fontSize: 12,
-                color: _C.textPrimary,
-                height: 1.3),
+                fontSize: 12, color: _C.textPrimary, height: 1.3),
           ),
         ),
       ],
@@ -2736,22 +3203,31 @@ class _FinanzasPageState extends State<_FinanzasPage> {
     await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Configurar Fondo Inicial', style: TextStyle(color: _C.magenta, fontWeight: FontWeight.bold)),
+        title: const Text('Configurar Fondo Inicial',
+            style: TextStyle(color: _C.magenta, fontWeight: FontWeight.bold)),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         content: TextFormField(
           controller: _fundController,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           decoration: InputDecoration(
             labelText: 'Monto (\$) inicial',
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: const BorderSide(width: 0.5)),
-            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: const BorderSide(color: Color(0xfff3e4ed), width: 0.5)),
-            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: const BorderSide(color: _C.magenta, width: 1.0)),
+            border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(30),
+                borderSide: const BorderSide(width: 0.5)),
+            enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(30),
+                borderSide:
+                    const BorderSide(color: Color(0xfff3e4ed), width: 0.5)),
+            focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(30),
+                borderSide: const BorderSide(color: _C.magenta, width: 1.0)),
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar', style: TextStyle(color: _C.textSecondary)),
+            child: const Text('Cancelar',
+                style: TextStyle(color: _C.textSecondary)),
           ),
           ElevatedButton(
             onPressed: () {
@@ -2763,7 +3239,8 @@ class _FinanzasPageState extends State<_FinanzasPage> {
             style: ElevatedButton.styleFrom(
               backgroundColor: _C.magenta,
               foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(30)),
             ),
             child: const Text('Guardar'),
           ),
@@ -2774,7 +3251,9 @@ class _FinanzasPageState extends State<_FinanzasPage> {
 
   @override
   Widget build(BuildContext context) {
-    final expenses = widget.store.movements.where((m) => m.type == MovementType.expense).toList();
+    final expenses = widget.store.movements
+        .where((m) => m.type == MovementType.expense)
+        .toList();
     final totalExpenses = expenses.fold(0.0, (sum, m) => sum + m.unitPrice);
     final currentBalance = widget.store.walletBaseBalance - totalExpenses;
 
@@ -2783,12 +3262,14 @@ class _FinanzasPageState extends State<_FinanzasPage> {
       final note = e.note.trim().isEmpty ? 'Sin descripción' : e.note.trim();
       stats[note] = (stats[note] ?? 0) + e.unitPrice;
     }
-    final sortedStats = stats.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    final sortedStats = stats.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final recent = expenses.take(10).toList();
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final isMobile = constraints.maxWidth < 650;
-        
+
         final summaryCards = [
           _SummaryCard(
             title: 'FONDO INICIAL',
@@ -2810,66 +3291,64 @@ class _FinanzasPageState extends State<_FinanzasPage> {
           ),
         ];
 
+        final actions = Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            FilledButton.icon(
+              onPressed: () => showExpenseDialog(context, widget.store),
+              icon: const Icon(Icons.add_rounded, size: 18),
+              label: const Text('REGISTRAR GASTO'),
+            ),
+            OutlinedButton.icon(
+              onPressed: _showFundDialog,
+              icon: const Icon(Icons.edit, size: 18),
+              label: const Text('FONDO INICIAL'),
+            ),
+          ],
+        );
+
         return Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 900),
-            child: Padding(
+            child: SingleChildScrollView(
               padding: EdgeInsets.all(isMobile ? 16 : 24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (isMobile)
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _PageHeader(
-                          icon: Icons.account_balance_wallet_rounded,
-                          title: 'FINANZAS PERSONALES',
-                          subtitle: 'Control de tus gastos y saldo disponible',
-                        ),
-                        const SizedBox(height: 16),
-                        ElevatedButton.icon(
-                          onPressed: _showFundDialog,
-                          icon: const Icon(Icons.edit, size: 18),
-                          label: const Text('FONDO INICIAL', style: TextStyle(fontWeight: FontWeight.bold)),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: _C.bgCard,
-                            foregroundColor: _C.magenta,
-                            elevation: 0,
-                            side: const BorderSide(color: _C.magenta, width: 1),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                          ),
-                        ),
-                      ],
-                    )
-                  else
+                  if (isMobile) ...[
+                    const _PageHeader(
+                      icon: Icons.account_balance_wallet_rounded,
+                      title: 'FINANZAS PERSONALES',
+                      subtitle: 'Control de tus gastos y saldo disponible',
+                    ),
+                    const SizedBox(height: 16),
+                    actions,
+                  ] else
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Expanded(
+                        const Expanded(
                           child: _PageHeader(
                             icon: Icons.account_balance_wallet_rounded,
                             title: 'FINANZAS PERSONALES',
-                            subtitle: 'Control de tus gastos y saldo disponible',
+                            subtitle:
+                                'Control de tus gastos y saldo disponible',
                           ),
                         ),
-                        ElevatedButton.icon(
-                          onPressed: _showFundDialog,
-                          icon: const Icon(Icons.edit, size: 18),
-                          label: const Text('FONDO INICIAL', style: TextStyle(fontWeight: FontWeight.bold)),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: _C.bgCard,
-                            foregroundColor: _C.magenta,
-                            elevation: 0,
-                            side: const BorderSide(color: _C.magenta, width: 1),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                          ),
-                        ),
+                        actions,
                       ],
                     ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Saldo disponible = fondo inicial − gastos registrados. '
+                    'Las ventas de productos se ven en Resumen, no aquí.',
+                    style: TextStyle(
+                      color: _C.textSecondary.withValues(alpha: 0.9),
+                      fontSize: 12,
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
                   if (isMobile)
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2891,89 +3370,244 @@ class _FinanzasPageState extends State<_FinanzasPage> {
                         Expanded(child: summaryCards[2]),
                       ],
                     ),
-              const SizedBox(height: 32),
-              const Text(
-                'ESTADÍSTICAS DE GASTOS',
-                style: TextStyle(
-                  color: _C.textSecondary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 1.2,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Expanded(
-                child: sortedStats.isEmpty
-                    ? _EmptyState(
-                        icon: Icons.pie_chart_outline,
-                        message: 'Aún no has registrado ningún gasto personal.',
-                      )
-                    : ListView.separated(
-                        itemCount: sortedStats.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 8),
-                        itemBuilder: (context, index) {
-                          final entry = sortedStats[index];
-                          final percentage = totalExpenses > 0 ? (entry.value / totalExpenses) * 100 : 0.0;
-                          return Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                            decoration: BoxDecoration(
-                              color: _C.bgCard,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: _C.strokeLight, width: 1),
-                            ),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        entry.key,
-                                        style: const TextStyle(fontWeight: FontWeight.bold, color: _C.textPrimary, fontSize: 14),
-                                      ),
-                                      const SizedBox(height: 6),
-                                      LinearProgressIndicator(
-                                        value: percentage / 100,
-                                        backgroundColor: Colors.orange.withValues(alpha: 0.1),
-                                        color: Colors.orange,
-                                        borderRadius: BorderRadius.circular(4),
-                                        minHeight: 6,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 24),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  children: [
-                                    Text(
-                                      '\$${entry.value.toStringAsFixed(2)}',
-                                      style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.orange, fontSize: 15),
-                                    ),
-                                    Text(
-                                      '${percentage.toStringAsFixed(1)}%',
-                                      style: TextStyle(color: _C.textSecondary.withValues(alpha: 0.8), fontSize: 11, fontWeight: FontWeight.bold),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          );
-                        },
+                  const SizedBox(height: 32),
+                  const _SectionDivider(label: '¿EN QUÉ SE VA EL DINERO?'),
+                  const SizedBox(height: 16),
+                  if (sortedStats.isEmpty)
+                    _EmptyState(
+                      icon: Icons.pie_chart_outline,
+                      message: 'Aún no has registrado gastos',
+                      hint:
+                          'Anota cada gasto con una descripción corta (por ejemplo "Comida" o "Gasolina") '
+                          'y aquí verás cuánto llevas en cada concepto.',
+                      actionLabel: 'REGISTRAR GASTO',
+                      onAction: () => showExpenseDialog(context, widget.store),
+                    )
+                  else ...[
+                    for (final entry in sortedStats) ...[
+                      _ExpenseStatTile(
+                        label: entry.key,
+                        amount: entry.value,
+                        percentage: totalExpenses > 0
+                            ? (entry.value / totalExpenses) * 100
+                            : 0.0,
                       ),
+                      const SizedBox(height: 8),
+                    ],
+                    const SizedBox(height: 24),
+                    const _SectionDivider(label: 'ÚLTIMOS GASTOS'),
+                    const SizedBox(height: 12),
+                    for (final m in recent)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: _MovementTile(movement: m),
+                      ),
+                  ],
+                ],
               ),
-            ],
+            ),
           ),
-        ),
-      ),
-    );
+        );
       },
     );
   }
 }
 
+class _ExpenseStatTile extends StatelessWidget {
+  const _ExpenseStatTile({
+    required this.label,
+    required this.amount,
+    required this.percentage,
+  });
+  final String label;
+  final double amount;
+  final double percentage;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _C.bgCard,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _C.strokeLight, width: 1),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: _C.textPrimary,
+                      fontSize: 14),
+                ),
+                const SizedBox(height: 6),
+                LinearProgressIndicator(
+                  value: percentage / 100,
+                  backgroundColor: Colors.orange.withValues(alpha: 0.1),
+                  color: Colors.orange,
+                  borderRadius: BorderRadius.circular(4),
+                  minHeight: 6,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 24),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                '\$${amount.toStringAsFixed(2)}',
+                style: const TextStyle(
+                    fontWeight: FontWeight.w900,
+                    color: Colors.orange,
+                    fontSize: 15),
+              ),
+              Text(
+                '${percentage.toStringAsFixed(1)}%',
+                style: TextStyle(
+                    color: _C.textSecondary.withValues(alpha: 0.8),
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Diálogo para registrar un gasto personal. Lo usan Finanzas y el Resumen.
+Future<void> showExpenseDialog(
+    BuildContext context, InventoryStore store) async {
+  final amount = TextEditingController();
+  final note = TextEditingController();
+  const suggestions = [
+    'Comida',
+    'Transporte',
+    'Gasolina',
+    'Servicios',
+    'Compras',
+    'Salud'
+  ];
+  String? error;
+  try {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          Future<void> save() async {
+            final value =
+                double.tryParse(amount.text.trim().replaceAll(',', '.'));
+            if (value == null || value <= 0) {
+              setDialogState(() => error = 'Escribe un monto mayor que cero');
+              return;
+            }
+            final failure =
+                await store.addExpense(amount: value, note: note.text.trim());
+            if (failure != null) {
+              setDialogState(() => error = failure);
+              return;
+            }
+            if (!dialogContext.mounted) return;
+            Navigator.pop(dialogContext);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content:
+                    Text('Gasto de \$${value.toStringAsFixed(2)} registrado.'),
+                backgroundColor: _C.green,
+              ),
+            );
+          }
+
+          return AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.receipt_long_rounded, color: Colors.orange),
+                SizedBox(width: 10),
+                Text('REGISTRAR GASTO'),
+              ],
+            ),
+            content: SizedBox(
+              width: 420,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TextField(
+                    controller: amount,
+                    autofocus: true,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    textInputAction: TextInputAction.next,
+                    style: const TextStyle(
+                        fontSize: 20, fontWeight: FontWeight.w800),
+                    decoration: InputDecoration(
+                      labelText: 'Monto',
+                      prefixText: '\$ ',
+                      errorText: error,
+                    ),
+                    onChanged: (_) {
+                      if (error != null) setDialogState(() => error = null);
+                    },
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: note,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: const InputDecoration(
+                      labelText: '¿En qué fue? (opcional)',
+                      hintText: 'Ej. Comida',
+                    ),
+                    onSubmitted: (_) => save(),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final s in suggestions)
+                        ActionChip(
+                          label: Text(s),
+                          onPressed: () => setDialogState(() => note.text = s),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('CANCELAR'),
+              ),
+              FilledButton.icon(
+                onPressed: save,
+                icon: const Icon(Icons.check_rounded, size: 18),
+                label: const Text('GUARDAR'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  } finally {
+    amount.dispose();
+    note.dispose();
+  }
+}
+
 class _SummaryCard extends StatelessWidget {
-  const _SummaryCard({required this.title, required this.value, required this.icon, required this.color});
+  const _SummaryCard(
+      {required this.title,
+      required this.value,
+      required this.icon,
+      required this.color});
   final String title;
   final String value;
   final IconData icon;
@@ -3004,7 +3638,11 @@ class _SummaryCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   title,
-                  style: TextStyle(color: color.withValues(alpha: 0.8), fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 0.5),
+                  style: TextStyle(
+                      color: color.withValues(alpha: 0.8),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.5),
                 ),
               ),
             ],
@@ -3015,7 +3653,11 @@ class _SummaryCard extends StatelessWidget {
             alignment: Alignment.centerLeft,
             child: Text(
               value,
-              style: TextStyle(color: color, fontSize: 24, fontWeight: FontWeight.w900, letterSpacing: -0.5),
+              style: TextStyle(
+                  color: color,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.5),
             ),
           ),
         ],
