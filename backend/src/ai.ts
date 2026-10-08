@@ -121,14 +121,50 @@ interface GeminiResponse {
   error?: { code?: number; message?: string; status?: string };
 }
 
-async function analyzeWithGemini(jpeg: Buffer, prompt: string): Promise<ProductAnalysis> {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) throw new AiError(503, 'La IA no está configurada en el servidor (falta GEMINI_API_KEY).');
+/** Modelos a intentar, en orden: el configurado y respaldos con plan gratuito. */
+function geminiModels(): string[] {
+  const fallbacks = (process.env.GEMINI_FALLBACK_MODELS ?? 'gemini-flash-lite-latest,gemini-2.5-flash')
+    .split(',')
+    .map((model) => model.trim())
+    .filter(Boolean);
+  return [...new Set([GEMINI_MODEL, ...fallbacks])];
+}
 
+class GeminiCallError extends Error {
+  constructor(
+    public readonly httpStatus: number,
+    public readonly status: string,
+    message: string,
+  ) {
+    super(message);
+  }
+
+  /** Saturación o falla temporal de Google: conviene reintentar. */
+  get transient() {
+    return this.httpStatus >= 500 || this.status === 'UNAVAILABLE' || this.status === 'INTERNAL';
+  }
+
+  get keyProblem() {
+    return /API key not valid|API_KEY_INVALID|API key expired/i.test(this.message);
+  }
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function callGemini(
+  key: string,
+  model: string,
+  jpeg: Buffer,
+  prompt: string,
+  withSchema: boolean,
+): Promise<ProductAnalysis> {
+  const schemaHint = withSchema
+    ? ''
+    : '\n\nResponde solo con un objeto JSON con las claves: name, brand, shade, category, description, tags (lista de textos) y confidence (número de 0 a 1).';
   let response: Response;
   try {
     response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
       {
         method: 'POST',
         // La clave va en un encabezado y no en la URL, para que no quede en logs.
@@ -139,13 +175,12 @@ async function analyzeWithGemini(jpeg: Buffer, prompt: string): Promise<ProductA
             role: 'user',
             parts: [
               { inlineData: { mimeType: 'image/jpeg', data: jpeg.toString('base64') } },
-              { text: prompt },
+              { text: prompt + schemaHint },
             ],
           }],
           generationConfig: {
             responseMimeType: 'application/json',
-            responseSchema: GEMINI_SCHEMA,
-            temperature: 0.4,
+            ...(withSchema ? { responseSchema: GEMINI_SCHEMA } : {}),
           },
         }),
         signal: AbortSignal.timeout(AI_TIMEOUT_MS),
@@ -155,24 +190,16 @@ async function analyzeWithGemini(jpeg: Buffer, prompt: string): Promise<ProductA
     if ((error as Error).name === 'TimeoutError') {
       throw new AiError(504, 'La IA tardó demasiado en responder. Intenta de nuevo.');
     }
-    throw new AiError(502, 'No se pudo conectar con el servicio de IA.');
+    throw new GeminiCallError(503, 'UNAVAILABLE', 'No se pudo conectar con Gemini.');
   }
 
   const data = (await response.json().catch(() => ({}))) as GeminiResponse;
   if (!response.ok) {
-    const status = data.error?.status ?? '';
-    const message = data.error?.message ?? '';
-    if (/API key not valid|API_KEY_INVALID/i.test(message) || status === 'PERMISSION_DENIED' || response.status === 403) {
-      throw new AiError(503, 'La GEMINI_API_KEY no es válida.');
-    }
-    if (response.status === 429 || status === 'RESOURCE_EXHAUSTED') {
-      throw new AiError(429, 'Se alcanzó el límite gratuito de Gemini. Espera un momento o intenta mañana.');
-    }
-    if (response.status === 404) {
-      throw new AiError(502, `El modelo "${GEMINI_MODEL}" no existe. Revisa GEMINI_MODEL.`);
-    }
-    console.error('Error de la API de Gemini', response.status, message);
-    throw new AiError(502, 'El servicio de IA devolvió un error.');
+    throw new GeminiCallError(
+      response.status,
+      data.error?.status ?? '',
+      data.error?.message ?? `HTTP ${response.status}`,
+    );
   }
 
   const candidate = data.candidates?.[0];
@@ -182,12 +209,73 @@ async function analyzeWithGemini(jpeg: Buffer, prompt: string): Promise<ProductA
   const text = (candidate?.content?.parts ?? [])
     .filter((part) => !part.thought && part.text)
     .map((part) => part.text)
-    .join('');
+    .join('')
+    // Sin esquema, algunos modelos envuelven el JSON en ```json … ```.
+    .replace(/^\s*```(?:json)?\s*/i, '')
+    .replace(/\s*```\s*$/, '');
   try {
-    return ProductAnalysis.parse(JSON.parse(text));
+    const raw = JSON.parse(text) as Record<string, unknown>;
+    return ProductAnalysis.parse({
+      name: raw.name ?? '',
+      brand: raw.brand ?? '',
+      shade: raw.shade ?? '',
+      category: raw.category ?? '',
+      description: raw.description ?? '',
+      tags: Array.isArray(raw.tags) ? raw.tags.map(String) : [],
+      confidence: Number(raw.confidence ?? 0.5) || 0,
+    });
   } catch {
-    throw new AiError(502, 'La IA respondió en un formato inesperado. Intenta de nuevo.');
+    throw new GeminiCallError(502, 'MALFORMED', `Respuesta no válida (finishReason ${candidate?.finishReason ?? '—'})`);
   }
+}
+
+async function analyzeWithGemini(jpeg: Buffer, prompt: string): Promise<ProductAnalysis> {
+  const key = process.env.GEMINI_API_KEY?.trim();
+  if (!key) throw new AiError(503, 'La IA no está configurada en el servidor (falta GEMINI_API_KEY).');
+
+  let last: GeminiCallError | null = null;
+  for (const model of geminiModels()) {
+    let withSchema = true;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await callGemini(key, model, jpeg, prompt, withSchema);
+      } catch (error) {
+        if (!(error instanceof GeminiCallError)) throw error;
+        last = error;
+        console.error(`Gemini (${model}) respondió ${error.httpStatus} ${error.status}: ${error.message}`);
+        if (error.keyProblem) {
+          throw new AiError(503, 'La GEMINI_API_KEY no es válida. Revísala en Render o en backend/.env.');
+        }
+        if (error.httpStatus === 429 || error.status === 'RESOURCE_EXHAUSTED') {
+          // El límite gratuito es por modelo: el siguiente puede tener cupo.
+          break;
+        }
+        if (error.httpStatus === 404 || error.status === 'NOT_FOUND') break;
+        if (error.httpStatus === 400 && withSchema) {
+          // Un modelo que no acepta el esquema se reintenta pidiendo JSON simple.
+          withSchema = false;
+          continue;
+        }
+        if (error.transient || error.status === 'MALFORMED') {
+          await sleep(800 * (attempt + 1));
+          continue;
+        }
+        break;
+      }
+    }
+  }
+
+  if (last && (last.httpStatus === 429 || last.status === 'RESOURCE_EXHAUSTED')) {
+    throw new AiError(429, 'Se alcanzó el límite gratuito de Gemini. Espera un momento o intenta mañana.');
+  }
+  if (last && last.httpStatus === 403) {
+    throw new AiError(503, `Gemini rechazó la clave: ${last.message}`);
+  }
+  if (last?.transient) {
+    throw new AiError(503, 'Gemini está saturado en este momento. Intenta de nuevo en un minuto.');
+  }
+  // Se muestra el motivo real de Google para poder corregirlo.
+  throw new AiError(502, `Gemini devolvió un error: ${(last?.message ?? 'desconocido').slice(0, 200)}`);
 }
 
 // ── Claude ───────────────────────────────────────────────────────────────────
