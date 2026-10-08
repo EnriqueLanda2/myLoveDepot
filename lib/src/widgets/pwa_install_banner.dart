@@ -45,7 +45,7 @@ class _PwaInstallBannerState extends State<PwaInstallBanner> {
       return const SizedBox.shrink();
     }
 
-    const magenta = Color(0xffd94f87);
+    const magenta = Color(0xffC8457A);
     const stroke = Color(0xffe8d0da);
     const textPrimary = Color(0xff49343f);
     const textSecondary = Color(0xff7a5c6b);

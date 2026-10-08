@@ -19,6 +19,13 @@ const connection = await mysql.createConnection({
 const addedColumns: Array<[string, string, string]> = [
   ['products', 'model_public_id', 'VARCHAR(255) NULL'],
   ['products', 'model_built_at', 'TIMESTAMP NULL'],
+  ['products', 'shade', "VARCHAR(120) NOT NULL DEFAULT ''"],
+  ['products', 'cost', 'DECIMAL(12,2) NOT NULL DEFAULT 0'],
+  ['products', 'description', 'TEXT NULL'],
+  ['products', 'tags', 'TEXT NULL'],
+  ['stock_movements', 'unit_price', 'DECIMAL(12,2) NULL'],
+  ['stock_movements', 'unit_cost', 'DECIMAL(12,2) NULL'],
+  ['personal_expenses', 'category', "VARCHAR(100) NOT NULL DEFAULT ''"],
 ];
 
 async function ensureColumn(table: string, column: string, definition: string) {
@@ -55,6 +62,17 @@ try {
   }
   if (pending.length > 0) {
     console.log(`${pending.length} categoría(s) registradas a partir de los productos.`);
+  }
+
+  // Antes los gastos solo tenían una nota libre que hacía de concepto ("panchito",
+  // "Farmacia"…). Esa nota pasa a ser la categoría del gasto.
+  const [moved] = await connection.query<mysql.ResultSetHeader>(
+    `UPDATE personal_expenses
+     SET category = IF(TRIM(note) = '', 'General', TRIM(note)), note = ''
+     WHERE category = ''`,
+  );
+  if (moved.affectedRows > 0) {
+    console.log(`${moved.affectedRows} gasto(s) recibieron categoría a partir de su nota.`);
   }
 
   console.log('Esquema MySQL actualizado.');

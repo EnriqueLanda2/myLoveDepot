@@ -158,8 +158,18 @@ class DepotApiClient {
     return (data['stock'] as num).toInt();
   }
 
-  Future<void> addExpense({
+  Future<List<Expense>> getExpenses() async {
+    final response = await http.get(_uri('/api/expenses'), headers: _headers);
+    _ensureSuccess(response);
+    return (jsonDecode(response.body) as List)
+        .map((item) => Expense.fromJson(item as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Registra el gasto y devuelve su id en el servidor.
+  Future<String> addExpense({
     required double amount,
+    required String category,
     required String note,
   }) async {
     final response = await http.post(
@@ -167,10 +177,59 @@ class DepotApiClient {
       headers: _headers,
       body: jsonEncode({
         'amount': amount,
+        'category': category,
         'note': note,
       }),
     );
     _ensureSuccess(response);
+    return (jsonDecode(response.body) as Map<String, dynamic>)['id'].toString();
+  }
+
+  Future<void> deleteExpense(String id) async {
+    final response =
+        await http.delete(_uri('/api/expenses/$id'), headers: _headers);
+    _ensureSuccess(response);
+  }
+
+  Future<http.Response> _postImage(
+    String path,
+    Uint8List bytes, {
+    Map<String, String> fields = const {},
+    Duration timeout = const Duration(seconds: 90),
+  }) async {
+    final request = http.MultipartRequest('POST', _uri(path))
+      ..headers['authorization'] = 'Bearer $token'
+      ..fields.addAll(fields)
+      ..files.add(
+          http.MultipartFile.fromBytes('image', bytes, filename: 'producto.jpg'));
+    final streamed = await request.send().timeout(timeout);
+    final response = await http.Response.fromStream(streamed);
+    _ensureSuccess(response);
+    return response;
+  }
+
+  /// La IA identifica el producto de la foto y propone su ficha.
+  Future<AiProductSuggestion> analyzeProduct(Uint8List bytes) async {
+    final response = await _postImage('/api/ai/analyze-product', bytes);
+    return AiProductSuggestion.fromJson(
+        jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  /// Recorta el producto y lo coloca sobre fondos de estudio. [set] elige el
+  /// juego de fondos ("Generar otras" pide el siguiente).
+  Future<List<AiPhotoOption>> generateProductPhotos(Uint8List bytes,
+      {int set = 0}) async {
+    final response = await _postImage('/api/ai/product-photos', bytes,
+        fields: {'set': '$set'});
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    return (data['photos'] as List).map((item) {
+      final photo = item as Map<String, dynamic>;
+      final image = photo['image'] as String;
+      return AiPhotoOption(
+        label: photo['label'] as String,
+        bytesBase64: image.substring(image.indexOf(',') + 1),
+      );
+    }).toList();
   }
 
   void _ensureSuccess(http.Response response) {

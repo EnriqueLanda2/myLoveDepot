@@ -3,8 +3,10 @@
 Inventario y finanzas personales para un pequeño negocio, hecho en **Flutter**
 (PWA para teléfono, tablet o computadora) con una **API en Node.js + MySQL**.
 
-Registra productos con foto, controla entradas y ventas, recibe alertas de stock
-bajo, revisa tus ganancias del día y del mes, y lleva un control de tus gastos.
+Sube la foto de un producto y la **IA llena la ficha** (nombre, tono, categoría,
+descripción y etiquetas) y te ofrece **fotografías de catálogo**. Controla
+entradas y ventas con su ganancia real, recibe alertas de stock bajo y lleva tus
+finanzas con un **presupuesto semanal**.
 
 ---
 
@@ -18,9 +20,10 @@ bajo, revisa tus ganancias del día y del mes, y lleva un control de tus gastos.
 6. [Comandos útiles](#comandos-útiles)
 7. [Publicar en internet](#publicar-en-internet)
 8. [Instalar la app en el teléfono](#instalar-la-app-en-el-teléfono)
-9. [Generador de modelos 3D (opcional)](#generador-de-modelos-3d-opcional)
-10. [Solución de problemas](#solución-de-problemas)
-11. [Estructura del proyecto](#estructura-del-proyecto)
+9. [IA: ficha y fotografías del producto](#ia-ficha-y-fotografías-del-producto)
+10. [Generador de modelos 3D (opcional)](#generador-de-modelos-3d-opcional)
+11. [Solución de problemas](#solución-de-problemas)
+12. [Estructura del proyecto](#estructura-del-proyecto)
 
 ---
 
@@ -28,12 +31,24 @@ bajo, revisa tus ganancias del día y del mes, y lleva un control de tus gastos.
 
 | Sección | Para qué sirve |
 | --- | --- |
-| **Resumen** | Unidades en stock, valor del almacén, ganancias de hoy y del mes, acciones rápidas y lista de productos con stock bajo (tócalos para reabastecer). |
-| **Productos** | Catálogo con foto o video, búsqueda, filtro por categoría y por stock bajo. Botones `+1 ENTRADA`, `−1 VENTA` y **Ajustar** para mover varias unidades. |
-| **Categorías** | Crear, renombrar (se actualiza en todos los productos) y eliminar categorías sin productos. |
-| **Movimientos** | Historial de entradas y salidas, filtrable por tipo, categoría, mes y año. |
-| **Finanzas** | Fondo inicial, registro de gastos personales, saldo disponible y en qué se va el dinero. |
-| **Ayuda** | El botón **?** de la barra superior explica cada sección dentro de la app. |
+| **Nuevo producto con IA** | Arrastra o elige la foto del producto: la IA identifica marca y tono, redacta la descripción, sugiere la categoría (la crea si no existe) y genera 4 fotografías de catálogo para elegir. Todo se puede editar. |
+| **Resumen** | Unidades en stock, valor del almacén, ganancias de hoy y del mes, productos que requieren atención (con **Reabastecer**) y últimos movimientos. |
+| **Productos** | Catálogo en cuadrícula o lista, búsqueda por nombre, tono o SKU, filtro de stock bajo y chips de categoría. **Entrada** y **Salida** abren el registro con la ganancia de la venta. |
+| **Categorías** | Crear, renombrar y ver productos, unidades y valor de cada una. Una categoría con productos no se puede eliminar. |
+| **Movimientos** | Historial de entradas y salidas con la ganancia de cada venta. |
+| **Finanzas** | Presupuesto semanal (lunes a domingo): cuánto puedes gastar esta semana, cuánto llevas ahorrado, saldo disponible, gráfica semana a semana y gastos por categoría. |
+| **Ayuda** | En el menú lateral (o el menú ⋮ en el teléfono) hay una guía de cada sección. |
+
+Reglas que respeta la app (y valida también la API):
+
+- **Ganancia** de una venta = (precio − costo) × cantidad. El precio y el costo se
+  guardan en el movimiento, así que editar el producto después no cambia ventas pasadas.
+- Una **salida** nunca puede superar el stock disponible.
+- Eliminar un **producto** o un **gasto** muestra **Deshacer** durante 5 segundos.
+- **Saldo disponible** = fondo inicial − gastos totales. Hay un interruptor para
+  sumarle las ganancias por ventas (apagado por defecto).
+- **Llevas ahorrado** = suma de (presupuesto − gasto) de cada semana cerrada desde
+  tu primer gasto. Si te pasas en una semana, resta.
 
 Todo se guarda primero en el dispositivo (carga instantánea y funciona sin
 conexión) y se sincroniza con la API cuando hay sesión e internet.
@@ -42,17 +57,15 @@ conexión) y se sincroniza con la API cuando hay sesión e internet.
 
 1. **Inicia sesión** con el usuario `wifey` o `husband` y la contraseña que se
    configuró en el servidor.
-2. **Crea tus categorías** (por ejemplo *Hombre*, *Mujer*, *Unisex*) en la
-   pestaña **Categorías**, o directamente desde el formulario de producto con
-   *Registrar categoría*.
-3. **Agrega productos** con el botón **Nuevo**: nombre, precio, existencia y el
-   número con el que quieres que te avise (*Avisarme cuando queden*).
-4. **Cada venta** se registra con `−1 VENTA` en la tarjeta del producto; cada
-   compra o reposición con `+1 ENTRADA`, o con **Ajustar** si son varias unidades.
-5. **Revisa el Resumen** cada día: verás tus ganancias y qué productos hay que
-   reabastecer.
-6. **En Finanzas**, define tu fondo inicial y anota tus gastos para conocer tu
-   saldo disponible.
+2. **Agrega productos** con **Nuevo producto**: sube una foto con el empaque o la
+   etiqueta visible y espera unos segundos. Revisa lo que llenó la IA (los campos
+   con la marca morada **IA**), elige una de las fotografías y completa **precio**
+   y **costo**. Solo el nombre y el precio son obligatorios.
+3. **Cada venta** se registra con **Salida** en la tarjeta del producto; cada
+   compra o reposición con **Entrada**. Ajusta la cantidad con − / + o escríbela.
+4. **Revisa el Resumen** cada día: ganancias y qué productos hay que reabastecer.
+5. **En Finanzas**, define tu **presupuesto semanal** y tu **fondo inicial**, y
+   registra cada gasto con su categoría (Comida, Farmacia…).
 
 ---
 
@@ -64,13 +77,18 @@ conexión) y se sincroniza con la API cuando hay sesión e internet.
 | Google Chrome | reciente | Ejecutar la app en modo desarrollo | Sí |
 | [Node.js](https://nodejs.org/) | 22 o superior | Ejecutar la API | Sí |
 | MySQL | 8.x | Base de datos (local, [Aiven](https://aiven.io/) u otro) | Sí |
-| Cuenta de [Cloudinary](https://cloudinary.com/) | gratuita | Guardar fotos y videos de productos | Sí¹ |
+| Cuenta de [Cloudinary](https://cloudinary.com/) | gratuita | Guardar fotos de productos en producción | Solo en producción¹ |
+| API key de [Anthropic](https://console.anthropic.com/) | — | Análisis de fotos con IA (Claude) | No² |
 | [Docker](https://www.docker.com/) | reciente | Levantar MySQL local con un comando | No |
 | Python | 3.10 o superior | Generador de modelos 3D | No |
 | Android Studio / Xcode | reciente | Compilar APK Android / app iOS nativa | No |
 
-¹ La API no arranca sin las tres variables de Cloudinary. Para probar en local
-puedes usar valores de relleno; solo fallará la subida de fotos.
+¹ En local usa `MEDIA_STORAGE=local`: las fotos se guardan en `backend/uploads`
+y no hace falta Cloudinary.
+
+² Sin la clave la app funciona igual: el análisis avisa que la IA no está
+configurada, el formulario se llena a mano y las fotografías de catálogo se
+siguen generando (eso corre en tu servidor, no en Claude).
 
 > **macOS:** si instalaste Flutter en `~/development/flutter`, agrégalo al PATH
 > añadiendo esta línea a `~/.zshrc` y abriendo una terminal nueva:
@@ -100,6 +118,22 @@ Esto crea una base `my_love_depot` con usuario `depot` / contraseña `depot` en
 `localhost:3306`. Si no usas Docker, crea esa base en cualquier MySQL 8 o usa
 la URI de Aiven.
 
+Sin Docker ni Homebrew en macOS (Apple Silicon) se puede usar el MySQL oficial
+portátil, sin instalar nada en el sistema:
+
+```bash
+cd ~/development
+curl -LO https://cdn.mysql.com/Downloads/MySQL-8.4/mysql-8.4.9-macos15-arm64.tar.gz
+tar -xzf mysql-8.4.9-macos15-arm64.tar.gz && mv mysql-8.4.9-macos15-arm64 mysql
+mysql/bin/mysqld --no-defaults --initialize-insecure --datadir=$HOME/development/mysql-data
+# Arrancarlo (cada vez que reinicies la computadora):
+mysql/bin/mysqld --no-defaults --datadir=$HOME/development/mysql-data \
+  --bind-address=127.0.0.1 --mysqlx=OFF &
+# Crear la base y el usuario (solo la primera vez):
+mysql/bin/mysql --no-defaults -uroot -h127.0.0.1 -e "CREATE DATABASE my_love_depot; \
+  CREATE USER 'depot'@'%' IDENTIFIED BY 'depot'; GRANT ALL ON my_love_depot.* TO 'depot'@'%';"
+```
+
 ### 2. API (`backend/`)
 
 ```bash
@@ -116,10 +150,9 @@ DATABASE_URL=mysql://depot:depot@localhost:3306/my_love_depot
 JWT_SECRET=<cadena aleatoria larga>
 WIFEY_PASSWORD=<contraseña de 12+ caracteres>
 HUSBAND_PASSWORD=<otra contraseña de 12+ caracteres>
-CLOUDINARY_CLOUD_NAME=...
-CLOUDINARY_API_KEY=...
-CLOUDINARY_API_SECRET=...
+MEDIA_STORAGE=local
 ALLOWED_ORIGINS=http://localhost:8080
+ANTHROPIC_API_KEY=<tu clave de Anthropic, opcional>
 ```
 
 Para generar un `JWT_SECRET` seguro:
@@ -164,9 +197,14 @@ Todas viven en `backend/.env` (nunca lo subas a Git; ya está en `.gitignore`).
 | `PORT` | No | Puerto de la API. Por omisión `3000`. |
 | `DATABASE_URL` | Sí | URI MySQL: `mysql://usuario:contraseña@host:puerto/base`. |
 | `DATABASE_CA_CERT_BASE64` | No | Certificado CA en Base64 (Aiven). Vacío en `localhost`. |
-| `CLOUDINARY_CLOUD_NAME` | Sí | Nombre de tu cuenta de Cloudinary. |
-| `CLOUDINARY_API_KEY` | Sí | API key de Cloudinary. |
-| `CLOUDINARY_API_SECRET` | Sí | API secret de Cloudinary. |
+| `MEDIA_STORAGE` | No | `cloudinary` (por omisión, producción) o `local` (fotos en `backend/uploads`, para desarrollo). |
+| `PUBLIC_API_URL` | No | URL pública de la API, para armar los enlaces de las fotos con `MEDIA_STORAGE=local`. Por omisión `http://localhost:3000`. |
+| `CLOUDINARY_CLOUD_NAME` | Con `cloudinary` | Nombre de tu cuenta de Cloudinary. |
+| `CLOUDINARY_API_KEY` | Con `cloudinary` | API key de Cloudinary. |
+| `CLOUDINARY_API_SECRET` | Con `cloudinary` | API secret de Cloudinary. |
+| `ANTHROPIC_API_KEY` | No | Activa el análisis de fotos con Claude. Sin ella, la app avisa y se llena a mano. |
+| `AI_MODEL` | No | Modelo de Claude para el análisis. Por omisión `claude-sonnet-5-5`. |
+| `AI_TIMEOUT_MS` | No | Tiempo máximo de espera de la IA. Por omisión `60000`. |
 | `JWT_SECRET` | Sí | Clave para firmar las sesiones (64+ caracteres aleatorios). |
 | `WIFEY_USERNAME` / `HUSBAND_USERNAME` | No | Usuarios. Por omisión `wifey` y `husband`. |
 | `WIFEY_PASSWORD` / `HUSBAND_PASSWORD` | Sí | Contraseñas de cada usuario. |
@@ -269,6 +307,35 @@ Selecciona tu equipo de Apple Developer, conecta el iPhone y ejecuta
 
 ---
 
+## IA: ficha y fotografías del producto
+
+Todo pasa por la API; la clave de Anthropic **nunca** llega a la app.
+
+| Endpoint | Qué hace |
+| --- | --- |
+| `POST /api/ai/analyze-product` | Recibe la foto (`multipart`, campo `image`) y le pide a Claude (visión, salida JSON estricta) `{ name, brand, shade, category, description, tags[], confidence }`. Le pasa las categorías existentes para que elija una de ellas cuando encaje; la descripción sale en español, 2–3 frases de venta. |
+| `POST /api/ai/product-photos` | Recibe la foto (`image`) y un juego (`set`, 0 o 1). Quita el fondo y compone 4 fotografías de 1024×1024 sobre fondos de estudio (blanco, rosa pastel, sombra suave, contraste; el segundo juego: degradado rosa, menta, arena y lavanda). Devuelve los JPEG en Base64. |
+
+Cómo se usa en la app: al subir la foto, la app llama a los dos endpoints a la
+vez y muestra el progreso (*Detectando el producto → Identificando marca y tono →
+Redactando descripción y categoría → Generando fotografías*). Si la IA falla o
+tarda demasiado, aparece un aviso y el formulario sigue siendo editable. La foto
+elegida se sube como foto principal del producto.
+
+Detalles que conviene saber:
+
+- **Modelo:** `claude-sonnet-5-5` por omisión (`AI_MODEL` para cambiarlo), con
+  esfuerzo bajo para que responda rápido. Si los filtros de seguridad rechazaran
+  una foto, la API la reintenta en el modelo de respaldo recomendado
+  (`fallbacks: "default"`).
+- **Costo:** cada análisis es una sola llamada con una imagen reducida a ~1.5 MP;
+  las fotografías no usan Claude.
+- **Privacidad:** la foto del producto se envía a Anthropic para analizarla.
+- **Quitar el fondo** se hace en el servidor con `sharp` (`backend/src/product-photos.ts`):
+  toma el color de los bordes como fondo y lo "inunda" hacia adentro. Funciona muy
+  bien con **fondo liso** y contrastado; con fondos muy cargados no se puede
+  separar el producto y se usa la foto completa con esquinas redondeadas.
+
 ## Generador de modelos 3D (opcional)
 
 La API incluye un endpoint (`POST /api/products/:id/model`) que reconstruye un
@@ -296,6 +363,8 @@ Las fotos con **fondo liso y contrastado** dan los mejores resultados.
 
 | Síntoma | Causa probable y solución |
 | --- | --- |
+| *"La IA no está configurada en el servidor"* | Agrega `ANTHROPIC_API_KEY` a `backend/.env` y reinicia la API. |
+| Las fotografías generadas recortan mal el producto | Toma la foto sobre un fondo liso que contraste con el producto, con el producto completo y centrado. |
 | *"La app no tiene servidor configurado"* al iniciar sesión | Falta `--dart-define=API_BASE_URL=...` al ejecutar o compilar la app. |
 | *"No hay conexión con el servidor"* | La API no está corriendo, la URL es incorrecta, o el origen de la app no está en `ALLOWED_ORIGINS`. Revisa la consola del navegador (error CORS). |
 | *"Usuario o contraseña incorrectos"* | Verifica `WIFEY_PASSWORD` / `HUSBAND_PASSWORD` en `backend/.env` y reinicia la API. Tras 8 intentos fallidos se bloquea 15 minutos. |
@@ -316,12 +385,20 @@ lib/                      App Flutter
   src/inventory_store.dart Estado, guardado local y sincronización
   src/api_client.dart     Cliente HTTP de la API
   src/models.dart         Producto, categoría y movimiento
-  src/screens/            Pantallas (inicio, login, producto, stock, categorías)
+  src/ui/                 Sistema visual: colores, tipografía y componentes
+                          (Button, Chip, Card, Modal, StockPill, Toast…)
+  src/screens/            Shell con sidebar, vistas (Resumen, Productos,
+                          Categorías, Movimientos, Finanzas) y modales
+                          (producto con IA, movimiento, gasto, fondo, presupuesto)
   src/widgets/            Mascota, banner e instalación PWA
+assets/fonts/             Figtree (licencia OFL)
 test/                     Pruebas de lógica y de pantallas
 web/                      index.html, manifest e íconos de la PWA
 backend/                  API Express + TypeScript
   src/server.ts           Rutas de la API
+  src/ai.ts               Análisis de la foto con Claude
+  src/product-photos.ts   Quitar fondo y componer fotografías de catálogo
+  src/media-storage.ts    Fotos en Cloudinary o en disco (desarrollo)
   src/migrate.ts          Aplica schema.sql
   schema.sql              Tablas MySQL
   tools/model3d/          Generador de modelos 3D (Python)

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'inventory_store.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
+import 'ui/tokens.dart';
 
 class DepotApp extends StatefulWidget {
   const DepotApp({super.key});
@@ -28,337 +29,10 @@ class _DepotAppState extends State<DepotApp> {
 
   @override
   Widget build(BuildContext context) {
-    // ── Paleta principal (LIGHT — refinada) ───────────────────────────────────
-    const magenta = Color(0xffd94f87);          // acento principal
-
-    // Colores del tema CLARO
-    const bgBase = Color(0xfffff6fa);           // fondo scaffold (crema rosado)
-    const bgCard = Color(0xffffffff);           // tarjetas blancas
-    const bgSurface = Color(0xfffffbfd);        // superficies
-    const bgNav = Color(0xfffffafd);            // nav bar/rail
-    const indicatorColor = Color(0xffffd7e6);   // indicador nav
-    const stroke = Color(0xffe8d0da);           // líneas sutiles rosadas
-    const textPrimary = Color(0xff3a2633);      // texto principal (rosa oscuro más profundo)
-    const textSecondary = Color(0xff7a5c6b);    // texto secundario
-
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'My Love Depot',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: magenta,
-          brightness: Brightness.light,
-          primary: magenta,
-          onPrimary: Colors.white,
-          secondary: const Color(0xffb5296b),
-          surface: bgSurface,
-          surfaceContainerLow: bgCard,
-          surfaceContainerLowest: bgBase,
-          surfaceContainerHigh: const Color(0xffffedf5),
-          onSurface: textPrimary,
-          onSurfaceVariant: textSecondary,
-          outline: stroke,
-          error: const Color(0xffb00020),
-        ),
-        useMaterial3: true,
-        scaffoldBackgroundColor: bgBase,
-
-        // ── AppBar ────────────────────────────────────────────────────────────
-        appBarTheme: AppBarTheme(
-          backgroundColor: bgBase,
-          foregroundColor: textPrimary,
-          centerTitle: false,
-          elevation: 0,
-          scrolledUnderElevation: 0,
-          shadowColor: Colors.transparent,
-          surfaceTintColor: Colors.transparent,
-          titleTextStyle: const TextStyle(
-            color: textPrimary,
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.3,
-          ),
-          shape: const Border(
-            bottom: BorderSide(color: stroke, width: 1),
-          ),
-        ),
-
-        // ── NavigationBar (móvil) ─────────────────────────────────────────────
-        navigationBarTheme: NavigationBarThemeData(
-          backgroundColor: bgNav,
-          indicatorColor: indicatorColor,
-          height: 68,
-          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-          labelTextStyle: WidgetStateProperty.resolveWith((states) {
-            if (states.contains(WidgetState.selected)) {
-              return const TextStyle(
-                color: magenta,
-                fontWeight: FontWeight.w700,
-                fontSize: 11,
-                letterSpacing: 0.5,
-              );
-            }
-            return const TextStyle(
-              color: textSecondary,
-              fontSize: 11,
-              letterSpacing: 0.5,
-            );
-          }),
-          iconTheme: WidgetStateProperty.resolveWith((states) {
-            if (states.contains(WidgetState.selected)) {
-              return const IconThemeData(color: magenta, size: 22);
-            }
-            return const IconThemeData(color: textSecondary, size: 22);
-          }),
-        ),
-
-        // ── NavigationRail (escritorio) ───────────────────────────────────────
-        navigationRailTheme: const NavigationRailThemeData(
-          backgroundColor: bgNav,
-          indicatorColor: indicatorColor,
-          selectedIconTheme: IconThemeData(color: magenta),
-          unselectedIconTheme: IconThemeData(color: textSecondary),
-          selectedLabelTextStyle: TextStyle(
-            color: magenta,
-            fontWeight: FontWeight.w700,
-            fontSize: 12,
-            letterSpacing: 0.4,
-          ),
-          unselectedLabelTextStyle: TextStyle(
-            color: textSecondary,
-            fontSize: 12,
-          ),
-        ),
-
-        // ── Cards ─────────────────────────────────────────────────────────────
-        cardTheme: const CardThemeData(
-          elevation: 0,
-          color: bgCard,
-          shadowColor: Color(0x0dd94f87),
-          margin: EdgeInsets.zero,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(20)),
-            side: BorderSide(color: stroke, width: 1),
-          ),
-        ),
-
-        // ── Inputs ────────────────────────────────────────────────────────────
-        inputDecorationTheme: const InputDecorationTheme(
-          filled: true,
-          fillColor: Colors.white,
-          labelStyle: TextStyle(color: textSecondary, fontSize: 13),
-          hintStyle: TextStyle(color: Color(0xffb090a0)),
-          contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.all(Radius.circular(12)),
-            borderSide: BorderSide(color: stroke),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.all(Radius.circular(12)),
-            borderSide: BorderSide(color: stroke),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.all(Radius.circular(12)),
-            borderSide: BorderSide(color: magenta, width: 1.5),
-          ),
-          errorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.all(Radius.circular(12)),
-            borderSide: BorderSide(color: Color(0xffb00020)),
-          ),
-          focusedErrorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.all(Radius.circular(12)),
-            borderSide: BorderSide(color: Color(0xffb00020), width: 1.5),
-          ),
-        ),
-
-        // ── Filled buttons ────────────────────────────────────────────────────
-        filledButtonTheme: FilledButtonThemeData(
-          style: ButtonStyle(
-            backgroundColor: WidgetStateProperty.resolveWith((states) {
-              if (states.contains(WidgetState.disabled)) {
-                return const Color(0xffe0cdd6);
-              }
-              return magenta;
-            }),
-            foregroundColor: WidgetStateProperty.all(Colors.white),
-            overlayColor: WidgetStateProperty.all(
-                Colors.white.withValues(alpha: 0.15)),
-            padding: WidgetStateProperty.all(
-              const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-            ),
-            shape: WidgetStateProperty.all(
-              const RoundedRectangleBorder(
-                borderRadius: BorderRadius.all(Radius.circular(14)),
-              ),
-            ),
-            textStyle: WidgetStateProperty.all(
-              const TextStyle(
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.4,
-                fontSize: 14,
-              ),
-            ),
-          ),
-        ),
-
-        // ── Outlined buttons ──────────────────────────────────────────────────
-        outlinedButtonTheme: OutlinedButtonThemeData(
-          style: ButtonStyle(
-            foregroundColor: WidgetStateProperty.all(magenta),
-            side: WidgetStateProperty.all(
-              const BorderSide(color: magenta, width: 1),
-            ),
-            padding: WidgetStateProperty.all(
-              const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-            ),
-            shape: WidgetStateProperty.all(
-              const RoundedRectangleBorder(
-                borderRadius: BorderRadius.all(Radius.circular(12)),
-              ),
-            ),
-            textStyle: WidgetStateProperty.all(
-              const TextStyle(
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.3,
-                fontSize: 14,
-              ),
-            ),
-          ),
-        ),
-
-        // ── Text buttons ──────────────────────────────────────────────────────
-        textButtonTheme: TextButtonThemeData(
-          style: ButtonStyle(
-            foregroundColor: WidgetStateProperty.all(magenta),
-            textStyle: WidgetStateProperty.all(
-              const TextStyle(fontWeight: FontWeight.w600, letterSpacing: 0.3),
-            ),
-          ),
-        ),
-
-        // ── Chips ─────────────────────────────────────────────────────────────
-        chipTheme: const ChipThemeData(
-          side: BorderSide(color: Color(0xffffc4d9)),
-          shape: StadiumBorder(),
-          backgroundColor: bgSurface,
-          selectedColor: indicatorColor,
-          labelStyle: TextStyle(fontSize: 12, color: textPrimary),
-        ),
-
-        // ── Dividers ──────────────────────────────────────────────────────────
-        dividerTheme: const DividerThemeData(
-          color: stroke,
-          thickness: 1,
-          space: 1,
-        ),
-
-        // ── Dialogs ───────────────────────────────────────────────────────────
-        dialogTheme: const DialogThemeData(
-          backgroundColor: bgCard,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(24)),
-            side: BorderSide(color: stroke, width: 1),
-          ),
-          titleTextStyle: TextStyle(
-            color: textPrimary,
-            fontSize: 16,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 0.3,
-          ),
-        ),
-
-        // ── SnackBar ──────────────────────────────────────────────────────────
-        snackBarTheme: const SnackBarThemeData(
-          backgroundColor: Color(0xff3a2633),
-          contentTextStyle: TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(14)),
-          ),
-          behavior: SnackBarBehavior.floating,
-        ),
-
-        // ── Badges ────────────────────────────────────────────────────────────
-        badgeTheme: const BadgeThemeData(
-          backgroundColor: magenta,
-          textColor: Colors.white,
-          textStyle: TextStyle(fontWeight: FontWeight.w700, fontSize: 10),
-        ),
-
-        // ── Typography ────────────────────────────────────────────────────────
-        textTheme: const TextTheme(
-          displayLarge: TextStyle(
-              color: textPrimary, fontWeight: FontWeight.w800, letterSpacing: -1),
-          displayMedium: TextStyle(
-              color: textPrimary, fontWeight: FontWeight.w800, letterSpacing: -0.5),
-          headlineLarge: TextStyle(
-              color: textPrimary, fontWeight: FontWeight.w700, letterSpacing: -0.3),
-          headlineMedium: TextStyle(
-              color: textPrimary, fontWeight: FontWeight.w700),
-          headlineSmall: TextStyle(
-              color: textPrimary, fontWeight: FontWeight.w700),
-          titleLarge: TextStyle(
-              color: textPrimary, fontWeight: FontWeight.w700, letterSpacing: 0.2),
-          titleMedium: TextStyle(
-              color: textPrimary, fontWeight: FontWeight.w600),
-          titleSmall: TextStyle(
-              color: textPrimary, fontWeight: FontWeight.w600),
-          bodyLarge: TextStyle(color: textPrimary),
-          bodyMedium: TextStyle(color: textSecondary),
-          bodySmall: TextStyle(color: textSecondary, fontSize: 12),
-          labelLarge: TextStyle(
-              color: textPrimary, fontWeight: FontWeight.w700, letterSpacing: 0.5),
-          labelMedium: TextStyle(
-              color: textSecondary, letterSpacing: 0.8, fontWeight: FontWeight.w700, fontSize: 11),
-          labelSmall: TextStyle(
-              color: textSecondary, letterSpacing: 1.0, fontWeight: FontWeight.w700, fontSize: 10),
-        ),
-
-        // ── ListTile ──────────────────────────────────────────────────────────
-        listTileTheme: const ListTileThemeData(
-          tileColor: bgCard,
-          textColor: textPrimary,
-          iconColor: textSecondary,
-          contentPadding: EdgeInsets.symmetric(horizontal: 18, vertical: 4),
-        ),
-
-        // ── PopupMenu ─────────────────────────────────────────────────────────
-        popupMenuTheme: const PopupMenuThemeData(
-          color: bgCard,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(12)),
-            side: BorderSide(color: stroke, width: 1),
-          ),
-          textStyle: TextStyle(color: textPrimary, fontSize: 14),
-        ),
-
-        // ── Icon buttons ──────────────────────────────────────────────────────
-        iconButtonTheme: IconButtonThemeData(
-          style: ButtonStyle(
-            foregroundColor: WidgetStateProperty.resolveWith((states) {
-              if (states.contains(WidgetState.selected)) return magenta;
-              return textSecondary;
-            }),
-            shape: WidgetStateProperty.all(
-              const RoundedRectangleBorder(
-                  borderRadius: BorderRadius.all(Radius.circular(10))),
-            ),
-          ),
-        ),
-
-        // ── Progress indicators ───────────────────────────────────────────────
-        progressIndicatorTheme:
-            const ProgressIndicatorThemeData(color: magenta),
-
-        // ── FloatingActionButton ──────────────────────────────────────────────
-        floatingActionButtonTheme: const FloatingActionButtonThemeData(
-          backgroundColor: magenta,
-          foregroundColor: Colors.white,
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(18)),
-          ),
-        ),
-      ),
+      theme: buildAppTheme(),
       home: ListenableBuilder(
         listenable: store,
         builder: (_, __) => store.isAuthenticated
@@ -367,4 +41,114 @@ class _DepotAppState extends State<DepotApp> {
       ),
     );
   }
+}
+
+/// Tema del rediseño: Figtree, fondo rosado claro, tarjetas blancas con borde
+/// fino, sin sombras pesadas ni degradados.
+ThemeData buildAppTheme() {
+  final base = ThemeData(
+    useMaterial3: true,
+    fontFamily: kFontFamily,
+    colorScheme: ColorScheme.fromSeed(
+      seedColor: AppColors.primary,
+      primary: AppColors.primary,
+      onPrimary: Colors.white,
+      secondary: AppColors.primaryHover,
+      surface: AppColors.surface,
+      onSurface: AppColors.text,
+      onSurfaceVariant: AppColors.textSecondary,
+      outline: AppColors.border,
+      outlineVariant: AppColors.borderSoft,
+      error: AppColors.error,
+    ),
+    scaffoldBackgroundColor: AppColors.background,
+  );
+  return base.copyWith(
+    textTheme: base.textTheme.apply(
+      bodyColor: AppColors.text,
+      displayColor: AppColors.text,
+      fontFamily: kFontFamily,
+    ),
+    dividerTheme:
+        const DividerThemeData(color: AppColors.border, thickness: 1, space: 1),
+    tooltipTheme: TooltipThemeData(
+      decoration: BoxDecoration(
+        color: AppColors.text,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      textStyle: const TextStyle(
+          fontFamily: kFontFamily, color: Colors.white, fontSize: 12),
+      waitDuration: const Duration(milliseconds: 400),
+    ),
+    popupMenuTheme: PopupMenuThemeData(
+      color: AppColors.surface,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: AppColors.border),
+      ),
+      textStyle: const TextStyle(
+          fontFamily: kFontFamily, color: AppColors.text, fontSize: 14),
+    ),
+    dialogTheme: const DialogThemeData(
+      backgroundColor: AppColors.surface,
+      surfaceTintColor: Colors.transparent,
+    ),
+    navigationBarTheme: NavigationBarThemeData(
+      labelTextStyle: WidgetStateProperty.resolveWith(
+        (states) => TextStyle(
+          fontFamily: kFontFamily,
+          fontSize: 11,
+          fontWeight: states.contains(WidgetState.selected)
+              ? FontWeight.w600
+              : FontWeight.w500,
+          color: states.contains(WidgetState.selected)
+              ? AppColors.primaryText
+              : AppColors.navText,
+        ),
+      ),
+      iconTheme: WidgetStateProperty.resolveWith(
+        (states) => IconThemeData(
+          size: 22,
+          color: states.contains(WidgetState.selected)
+              ? AppColors.primaryText
+              : AppColors.navText,
+        ),
+      ),
+    ),
+    progressIndicatorTheme:
+        const ProgressIndicatorThemeData(color: AppColors.primary),
+    textSelectionTheme: const TextSelectionThemeData(
+      cursorColor: AppColors.primary,
+      selectionColor: AppColors.primarySoft,
+      selectionHandleColor: AppColors.primary,
+    ),
+    // El login conserva sus campos y botones con el estilo de la app.
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: AppColors.surface,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: AppColors.border),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: AppColors.border),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+      ),
+    ),
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        textStyle: const TextStyle(
+            fontFamily: kFontFamily, fontWeight: FontWeight.w600),
+      ),
+    ),
+  );
 }

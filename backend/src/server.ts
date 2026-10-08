@@ -13,11 +13,17 @@ import { databaseSsl } from './database-config.js';
 import { ModelBuildError, buildModel } from './model-generator.js';
 import { ScanQualityError, validateProductScan } from './scan-quality.js';
 import { FileValidationError, validateAndSanitizeMedia } from './security-validator.js';
+import { AiError, analyzeProductImage } from './ai.js';
+import { mediaStorage, storeProductMedia, uploadsDir } from './media-storage.js';
+import { generateProductPhotos } from './product-photos.js';
 
 const required = [
-  'DATABASE_URL', 'CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY',
-  'CLOUDINARY_API_SECRET', 'JWT_SECRET', 'WIFEY_PASSWORD', 'HUSBAND_PASSWORD',
-] as const;
+  'DATABASE_URL', 'JWT_SECRET', 'WIFEY_PASSWORD', 'HUSBAND_PASSWORD',
+  // Con MEDIA_STORAGE=local las fotos se guardan en disco y Cloudinary sobra.
+  ...(mediaStorage === 'cloudinary'
+    ? ['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET']
+    : []),
+];
 for (const key of required) {
   if (!process.env[key]) throw new Error(`Falta la variable ${key}`);
 }
@@ -41,6 +47,9 @@ app.set('trust proxy', 1);
 const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? '').split(',').map((item) => item.trim().replace(/\/$/, '')).filter(Boolean);
 app.use(cors({ origin: allowedOrigins.length === 0 ? false : allowedOrigins }));
 app.use(express.json({ limit: '1mb' }));
+if (mediaStorage === 'local') {
+  app.use('/uploads', express.static(uploadsDir, { maxAge: '7d', fallthrough: false }));
+}
 
 app.get('/health', async (_request, response) => {
   await pool.query('SELECT 1');
@@ -200,6 +209,10 @@ const productSchema = z.object({
   minimumStock: z.number().int().nonnegative(),
   imageUrl: z.string().url().or(z.literal('')).optional().default(''),
   imageUrls: z.array(z.string().url()).max(5).optional().default([]),
+  shade: z.string().trim().max(120).optional().default(''),
+  cost: z.number().nonnegative().optional().default(0),
+  description: z.string().max(2000).optional().default(''),
+  tags: z.array(z.string().trim().min(1).max(40)).max(12).optional().default([]),
 });
 
 app.get('/api/products', async (request, response) => {
@@ -220,9 +233,9 @@ app.get('/api/products', async (request, response) => {
   }
 
   if (search) {
-    whereConditions.push('(name LIKE ? OR sku LIKE ?)');
+    whereConditions.push('(name LIKE ? OR sku LIKE ? OR shade LIKE ?)');
     const q = `%${search}%`;
-    params.push(q, q);
+    params.push(q, q, q);
   }
 
   if (lowStock) {
@@ -242,8 +255,10 @@ app.get('/api/products', async (request, response) => {
   const queryOffset = !isPaginatedRequest && request.query.page === undefined ? 0 : offset;
 
   const [rows] = await pool.query<mysql.RowDataPacket[]>(`
-    SELECT id, name, sku, category,
-      CAST(price AS DOUBLE) price, stock, minimum_stock minimumStock,
+    SELECT id, name, sku, category, shade,
+      CAST(price AS DOUBLE) price, CAST(cost AS DOUBLE) cost,
+      stock, minimum_stock minimumStock,
+      COALESCE(description, '') description, COALESCE(tags, '[]') tags,
       COALESCE(image_url, '') imageUrl, COALESCE(model_url, '') modelUrl
     FROM products ${whereClause} ORDER BY name LIMIT ? OFFSET ?
   `, [...params, queryLimit, queryOffset]);
@@ -263,7 +278,11 @@ app.get('/api/products', async (request, response) => {
     }
   }
 
-  const products = rows.map((row) => ({ ...row, imageUrls: byProduct.get(String(row.id)) ?? [] }));
+  const products = rows.map((row) => ({
+    ...row,
+    tags: parseTags(row.tags),
+    imageUrls: byProduct.get(String(row.id)) ?? [],
+  }));
 
   if (isPaginatedRequest) {
     response.json({
@@ -286,13 +305,17 @@ app.post('/api/products', async (request, response) => {
     [randomUUID(), parsed.category]);
   await pool.execute(
     `INSERT INTO products
-      (id, name, sku, category, price, stock, minimum_stock, image_url)
-     VALUES (?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''))
+      (id, name, sku, category, shade, price, cost, stock, minimum_stock,
+       description, tags, image_url)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''))
      ON DUPLICATE KEY UPDATE name=VALUES(name), sku=VALUES(sku),
-       category=VALUES(category), price=VALUES(price),
-       stock=VALUES(stock), minimum_stock=VALUES(minimum_stock), image_url=VALUES(image_url)`,
-    [parsed.id, parsed.name, parsed.sku, parsed.category, parsed.price,
-      parsed.stock, parsed.minimumStock, parsed.imageUrl],
+       category=VALUES(category), shade=VALUES(shade), price=VALUES(price),
+       cost=VALUES(cost), stock=VALUES(stock), minimum_stock=VALUES(minimum_stock),
+       description=VALUES(description), tags=VALUES(tags),
+       image_url=COALESCE(VALUES(image_url), image_url)`,
+    [parsed.id, parsed.name, parsed.sku, parsed.category, parsed.shade, parsed.price,
+      parsed.cost, parsed.stock, parsed.minimumStock, parsed.description,
+      JSON.stringify(parsed.tags), parsed.imageUrl],
   );
   response.status(200).json({ ok: true });
 });
@@ -396,23 +419,22 @@ app.get('/api/movements', async (request, response) => {
   const limit = Math.max(1, Math.min(500, Number(request.query.limit ?? 200)));
   const offset = Math.max(0, Number(request.query.offset ?? 0));
 
+  // Los movimientos antiguos no guardaban precio ni costo; para ellos se usa
+  // el valor actual del producto.
   const [rows] = await pool.query<mysql.RowDataPacket[]>(`
     SELECT CAST(m.id AS CHAR) id, m.product_id productId, p.name productName,
-      m.type, m.quantity, CAST(p.price AS DOUBLE) unitPrice,
+      COALESCE(p.shade, '') productShade, m.type, m.quantity,
+      CAST(COALESCE(m.unit_price, p.price, 0) AS DOUBLE) unitPrice,
+      CAST(COALESCE(m.unit_cost, p.cost, 0) AS DOUBLE) unitCost,
       m.note, m.created_at createdAt
     FROM stock_movements m
     LEFT JOIN products p ON p.id = m.product_id
-    UNION ALL
-    SELECT CONCAT('exp-', e.id) as id, '' as productId, 'Gasto Personal' as productName,
-      'expense' as type, 1 as quantity, CAST(e.amount AS DOUBLE) as unitPrice,
-      e.note, e.created_at as createdAt
-    FROM personal_expenses e
-    ORDER BY createdAt DESC
+    ORDER BY m.created_at DESC, m.id DESC
     LIMIT ? OFFSET ?
   `, [limit, offset]);
 
   const [countRows] = await pool.query<mysql.RowDataPacket[]>(
-    'SELECT (SELECT COUNT(*) FROM stock_movements) + (SELECT COUNT(*) FROM personal_expenses) as total'
+    'SELECT COUNT(*) total FROM stock_movements',
   );
   const total = Number(countRows[0]?.total ?? 0);
 
@@ -421,9 +443,11 @@ app.get('/api/movements', async (request, response) => {
       id: String(row.id),
       productId: row.productId,
       productName: row.productName ?? 'Producto eliminado',
+      productShade: row.productShade ?? '',
       type: row.type,
       quantity: Number(row.quantity),
       unitPrice: Number(row.unitPrice ?? 0),
+      unitCost: Number(row.unitCost ?? 0),
       note: row.note ?? '',
       createdAt: row.createdAt,
     })),
@@ -443,7 +467,7 @@ app.post('/api/products/:id/movements', async (request, response) => {
   try {
     await connection.beginTransaction();
     const [rows] = await connection.execute<mysql.RowDataPacket[]>(
-      'SELECT stock FROM products WHERE id = ? FOR UPDATE',
+      'SELECT stock, price, cost FROM products WHERE id = ? FOR UPDATE',
       [request.params.id],
     );
     if (rows.length === 0) {
@@ -452,18 +476,30 @@ app.post('/api/products/:id/movements', async (request, response) => {
       return;
     }
     const delta = movement.type === 'incoming' ? movement.quantity : -movement.quantity;
+    // Regla de negocio: una salida nunca puede dejar el stock en negativo.
     if (Number(rows[0].stock) + delta < 0) {
       await connection.rollback();
-      response.status(409).json({ error: 'Existencias insuficientes' });
+      response.status(409).json({
+        error: `Existencias insuficientes: solo hay ${rows[0].stock} disponible(s).`,
+      });
       return;
     }
     await connection.execute('UPDATE products SET stock = stock + ? WHERE id = ?', [delta, request.params.id]);
-    await connection.execute(
-      'INSERT INTO stock_movements (product_id, type, quantity, note) VALUES (?, ?, ?, ?)',
-      [request.params.id, movement.type, movement.quantity, movement.note],
+    // El precio y el costo se congelan en el movimiento: la ganancia de una venta
+    // no cambia si después se edita el producto.
+    const [inserted] = await connection.execute<mysql.ResultSetHeader>(
+      `INSERT INTO stock_movements (product_id, type, quantity, note, unit_price, unit_cost)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [request.params.id, movement.type, movement.quantity, movement.note,
+        rows[0].price, rows[0].cost],
     );
     await connection.commit();
-    response.json({ stock: Number(rows[0].stock) + delta });
+    response.json({
+      id: String(inserted.insertId),
+      stock: Number(rows[0].stock) + delta,
+      unitPrice: Number(rows[0].price),
+      unitCost: Number(rows[0].cost),
+    });
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -474,16 +510,32 @@ app.post('/api/products/:id/movements', async (request, response) => {
 
 const expenseSchema = z.object({
   amount: z.number().positive(),
-  note: z.string().max(255).optional().default(''),
+  category: z.string().trim().min(1).max(100),
+  note: z.string().trim().max(255).optional().default(''),
+});
+
+app.get('/api/expenses', async (_request, response) => {
+  const [rows] = await pool.query<mysql.RowDataPacket[]>(`
+    SELECT CAST(id AS CHAR) id, CAST(amount AS DOUBLE) amount, category, note,
+      created_at createdAt
+    FROM personal_expenses ORDER BY created_at DESC, id DESC LIMIT 2000
+  `);
+  response.json(rows.map((row) => ({ ...row, amount: Number(row.amount) })));
 });
 
 app.post('/api/expenses', async (request, response) => {
   const expense = expenseSchema.parse(request.body);
   const [result] = await pool.execute<mysql.ResultSetHeader>(
-    'INSERT INTO personal_expenses (amount, note) VALUES (?, ?)',
-    [expense.amount, expense.note],
+    'INSERT INTO personal_expenses (amount, category, note) VALUES (?, ?, ?)',
+    [expense.amount, expense.category, expense.note],
   );
-  response.status(201).json({ id: result.insertId });
+  response.status(201).json({ id: String(result.insertId) });
+});
+
+app.delete('/api/expenses/:id', async (request, response) => {
+  const id = z.coerce.number().int().positive().parse(request.params.id);
+  await pool.execute('DELETE FROM personal_expenses WHERE id = ?', [id]);
+  response.status(204).send();
 });
 
 const upload = multer({
@@ -504,29 +556,13 @@ async function handleMediaUpload(request: Request, response: Response) {
   const validated = await validateAndSanitizeMedia(file.buffer, file.originalname);
 
   const isVideo = validated.mediaType === 'video';
-  const resourceType = isVideo ? 'video' : 'image';
-  const publicId = `${productId}/media-${viewIndex}-${Date.now()}`;
-
-  const uploadOptions: Record<string, unknown> = {
-    folder: 'my-love-depot/products',
-    public_id: publicId,
-    overwrite: true,
-    resource_type: resourceType,
-  };
-  if (!isVideo) {
-    uploadOptions.format = 'webp';
-  }
-
-  const result = await new Promise<{ secure_url: string; public_id: string }>((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream(
-      uploadOptions,
-      (error, uploaded) => {
-        if (error || !uploaded) reject(error ?? new Error('Cloudinary no respondió'));
-        else resolve(uploaded);
-      },
-    );
-    stream.end(validated.safeBuffer);
+  const stored = await storeProductMedia(validated.safeBuffer, {
+    productId,
+    publicId: `${productId}/media-${viewIndex}-${Date.now()}`,
+    isVideo,
+    format: validated.format,
   });
+  const result = { secure_url: stored.url, public_id: stored.publicId };
 
   await pool.execute(
     `INSERT INTO product_images (product_id, view_index, image_url, image_public_id)
@@ -550,6 +586,29 @@ async function handleMediaUpload(request: Request, response: Response) {
 app.post('/api/uploads/product-image', upload.single('image'), handleMediaUpload);
 app.post('/api/uploads/product-media', upload.single('media'), handleMediaUpload);
 
+// ── IA ────────────────────────────────────────────────────────────────────────
+
+async function readAiImage(request: Request) {
+  if (!request.file) throw new FileValidationError('Falta la foto del producto.');
+  const validated = await validateAndSanitizeMedia(request.file.buffer, request.file.originalname);
+  if (validated.mediaType !== 'image') throw new FileValidationError('La IA solo analiza fotos.');
+  return validated.safeBuffer;
+}
+
+app.post('/api/ai/analyze-product', upload.single('image'), async (request, response) => {
+  const image = await readAiImage(request);
+  // La lista de categorías sale de la base de datos, no del cliente.
+  const [rows] = await pool.query<mysql.RowDataPacket[]>('SELECT name FROM categories ORDER BY name');
+  const analysis = await analyzeProductImage(image, rows.map((row) => String(row.name)));
+  response.json(analysis);
+});
+
+app.post('/api/ai/product-photos', upload.single('image'), async (request, response) => {
+  const image = await readAiImage(request);
+  const set = z.coerce.number().int().min(0).max(100).catch(0).parse(request.body?.set);
+  response.json(await generateProductPhotos(image, set));
+});
+
 app.use((error: unknown, _request: Request, response: Response, _next: NextFunction) => {
   console.error(error);
   if (error instanceof z.ZodError) {
@@ -564,6 +623,10 @@ app.use((error: unknown, _request: Request, response: Response, _next: NextFunct
     response.status(400).json({ error: error.message });
     return;
   }
+  if (error instanceof AiError) {
+    response.status(error.status).json({ error: error.message });
+    return;
+  }
   if (error instanceof ModelBuildError) {
     response.status(422).json({ error: error.message });
     return;
@@ -574,6 +637,16 @@ app.use((error: unknown, _request: Request, response: Response, _next: NextFunct
   }
   response.status(500).json({ error: 'Error interno' });
 });
+
+function parseTags(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(String);
+  try {
+    const parsed = JSON.parse(String(value ?? '[]'));
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
 
 const port = Number(process.env.PORT ?? 3000);
 app.listen(port, '0.0.0.0', () => console.log(`API escuchando en el puerto ${port}`));

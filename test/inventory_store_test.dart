@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_love_depot/src/inventory_store.dart';
 import 'package:my_love_depot/src/models.dart';
@@ -73,4 +75,116 @@ void main() {
 
     expect(store.categoryNames, ['Adhesivos', 'Empaque']);
   });
+
+  Product sample({int stock = 3}) => Product(
+        id: 'p1',
+        name: 'Glossy Lip Oil',
+        sku: 'LIP-1',
+        category: 'Makeup',
+        shade: 'Coral',
+        price: 120,
+        cost: 70,
+        stock: stock,
+        minimumStock: 1,
+      );
+
+  test('la ganancia de una venta es (precio − costo) × cantidad', () async {
+    final store = InventoryStore();
+    final product = sample();
+    await store.saveProduct(product);
+
+    expect(
+      await store.moveStock(
+          product: product, type: MovementType.outgoing, quantity: 2, note: 'Venta'),
+      isNull,
+    );
+    expect(product.stock, 1);
+    expect(store.todayEarnings, 100);
+    expect(store.todaySalesUnits, 2);
+    // El precio y el costo quedan congelados en el movimiento.
+    product.price = 999;
+    expect(store.movements.first.profit, 100);
+  });
+
+  test('una salida no puede exceder el stock disponible', () async {
+    final store = InventoryStore();
+    final product = sample(stock: 1);
+    await store.saveProduct(product);
+
+    expect(
+      await store.moveStock(
+          product: product, type: MovementType.outgoing, quantity: 2, note: ''),
+      isNotNull,
+    );
+    expect(product.stock, 1);
+    expect(store.movements, isEmpty);
+  });
+
+  test('no se elimina una categoría que tiene productos', () async {
+    final store = InventoryStore();
+    await store.saveCategory('Makeup');
+    await store.saveProduct(sample());
+
+    expect(await store.deleteCategory(store.categories.single), isNotNull);
+    expect(store.categories, hasLength(1));
+  });
+
+  test('deshacer devuelve el producto y el gasto eliminados', () async {
+    final store = InventoryStore();
+    await store.saveProduct(sample());
+    await store.addExpense(amount: 50, category: 'Farmacia');
+
+    store.deleteProductWithUndo(store.products.single)();
+    store.deleteExpenseWithUndo(store.expenses.single)();
+
+    expect(store.products, hasLength(1));
+    expect(store.expenses, hasLength(1));
+  });
+
+  test('las semanas van de lunes a domingo', () {
+    // 8 de octubre de 2026 es jueves.
+    expect(InventoryStore.weekStart(DateTime(2026, 10, 8, 15)), DateTime(2026, 10, 5));
+    expect(InventoryStore.weekStart(DateTime(2026, 10, 11, 23)), DateTime(2026, 10, 5));
+    expect(InventoryStore.weekStart(DateTime(2026, 10, 12)), DateTime(2026, 10, 12));
+  });
+
+  test('saldo = fondo − gastos, y suma ventas solo si se activa', () async {
+    final store = InventoryStore();
+    final product = sample();
+    await store.saveProduct(product);
+    await store.setWalletBaseBalance(1000);
+    await store.addExpense(amount: 150, category: 'Comida');
+    await store.moveStock(
+        product: product, type: MovementType.outgoing, quantity: 1, note: '');
+
+    expect(store.availableBalance, 850);
+    await store.setIncludeSalesInBalance(true);
+    expect(store.availableBalance, 900);
+  });
+
+  test('los gastos viejos guardados como movimientos pasan a tener categoría', () async {
+    SharedPreferences.setMockInitialValues({
+      'depot_products_v1': '[]',
+      'depot_movements_v1': jsonEncode([
+        {
+          'id': 'exp-local-123',
+          'productId': '',
+          'productName': 'Gasto Personal',
+          'type': 'expense',
+          'quantity': 1,
+          'createdAt': DateTime(2026, 10, 1).toIso8601String(),
+          'unitPrice': 89.5,
+          'note': 'Farmacia',
+        },
+      ]),
+    });
+    final store = InventoryStore();
+    await store.load();
+
+    expect(store.movements, isEmpty);
+    expect(store.expenses.single.category, 'Farmacia');
+    expect(store.expenses.single.amount, 89.5);
+    expect(store.expenses.single.isLocal, isTrue);
+  });
 }
+

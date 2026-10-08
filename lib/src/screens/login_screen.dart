@@ -23,8 +23,8 @@ class _LoginScreenState extends State<LoginScreen>
   late final Animation<double> _floatAnim;
 
   // Paleta refinada
-  static const _magenta = Color(0xffd94f87);
-  static const _magentaDeep = Color(0xffb5296b);
+  static const _magenta = Color(0xffC8457A);
+  static const _magentaDeep = Color(0xffB23A6B);
   static const _bgGrad1 = Color(0xffffedf5);
   static const _bgGrad2 = Color(0xfffff8d9);
   static const _bgGrad3 = Color(0xfffffbfd);
@@ -511,7 +511,7 @@ class _PremiumField extends StatelessWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xffd94f87).withValues(alpha: 0.04),
+            color: const Color(0xffC8457A).withValues(alpha: 0.04),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -532,7 +532,7 @@ class _PremiumField extends StatelessWidget {
           hintText: hint,
           prefixIcon: Container(
             margin: const EdgeInsets.only(left: 12, right: 8),
-            child: Icon(icon, size: 20, color: const Color(0xffd94f87)),
+            child: Icon(icon, size: 20, color: const Color(0xffC8457A)),
           ),
           prefixIconConstraints:
               const BoxConstraints(minWidth: 40, minHeight: 40),
